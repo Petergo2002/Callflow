@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+test-results/
+playwright-report/
+.next-dev/
+.env*
+!.env.example
+.next-test/
+supabase/.temp/
+.next-cloud-test/
+test-results-cloud/
