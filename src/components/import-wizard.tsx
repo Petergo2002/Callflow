@@ -28,14 +28,16 @@ import { Dialog } from "./ui/dialog";
 export function ImportWizard({
   onClose,
   onStart,
+  initialGroupId = "",
 }: {
   onClose: () => void;
   onStart: (batchId: string) => void;
+  initialGroupId?: string;
 }) {
   const { data, mutate } = useStore();
   const [step, setStep] = useState(0);
   const [source, setSource] = useState("");
-  const [groupId, setGroupId] = useState("");
+  const [groupId, setGroupId] = useState(initialGroupId);
   const [groupName, setGroupName] = useState("");
   const [file, setFile] = useState<File>();
   const [sheets, setSheets] = useState<Sheet[]>([]);

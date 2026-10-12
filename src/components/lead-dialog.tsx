@@ -13,6 +13,8 @@ import {
   importDate,
   formatImportDate,
 } from "@/lib/model";
+import { saveGroup } from "@/lib/organization";
+import { GroupColorPicker } from "./group-color-picker";
 import { useStore } from "@/lib/store";
 import { deleteLeads, updateLead } from "@/lib/engine";
 import { makeLead } from "@/lib/model";
@@ -34,15 +36,22 @@ export function LeadDialog({
   lead,
   onClose,
   onCall,
+  initialGroupId = "",
 }: {
   lead: Lead | "new";
   onClose: () => void;
   onCall: (id: string) => void;
+  initialGroupId?: string;
 }) {
-  const { data, mutate } = useStore();
-  const [form, setForm] = useState<LeadInput>(lead === "new" ? blank : lead);
+  const { data, mutate, error: storageError } = useStore();
+  const [form, setForm] = useState<LeadInput>(
+    lead === "new" ? { ...blank, groupId: initialGroupId } : lead,
+  );
   const [error, setError] = useState("");
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupColor, setNewGroupColor] = useState("#16724c");
   const [saved, setSaved] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
   const editing = lead !== "new";
   if (!data) return null;
   const calls = editing
@@ -58,6 +67,41 @@ export function LeadDialog({
     ["city", "Ort"],
     ["contactName", "Kontaktperson"],
   ];
+  function persistLead(input: LeadInput) {
+    setSaveFailed(false);
+    if (form.groupId === "__new__") {
+      try {
+        saveGroup(data!, newGroupName, newGroupColor);
+      } catch (e) {
+        setError((e as Error).message);
+        return false;
+      }
+    }
+    let resolvedGroup = input.groupId;
+    const ok = mutate((d) => {
+      const next =
+        form.groupId === "__new__"
+          ? saveGroup(d, newGroupName, newGroupColor)
+          : d;
+      const fields = {
+        ...input,
+        groupId:
+          form.groupId === "__new__"
+            ? next.groups[next.groups.length - 1].id
+            : input.groupId,
+      };
+      resolvedGroup = fields.groupId;
+      return editing
+        ? updateLead(next, lead.id, fields)
+        : { ...next, leads: [...next.leads, makeLead(fields)] };
+    });
+    if (ok && form.groupId === "__new__") {
+      setForm({ ...input, groupId: resolvedGroup });
+      setNewGroupName("");
+    }
+    if (!ok) setSaveFailed(true);
+    return ok;
+  }
   function save(e: React.FormEvent) {
     e.preventDefault();
     const parsed = leadInput.safeParse(form);
@@ -65,11 +109,7 @@ export function LeadDialog({
       setError(parsed.error.issues.map((i) => i.message).join(". "));
       return;
     }
-    const ok = mutate((d) =>
-      editing
-        ? updateLead(d, lead.id, parsed.data)
-        : { ...d, leads: [...d.leads, makeLead(parsed.data)] },
-    );
+    const ok = persistLead(parsed.data);
     if (ok) {
       setSaved(true);
       setError("");
@@ -185,8 +225,31 @@ export function LeadDialog({
                   {g.name}
                 </option>
               ))}
+              <option value="__new__">＋ Skapa en ny grupp</option>
             </select>
           </label>
+          {form.groupId === "__new__" && (
+            <div className="inline-group-create full">
+              <label className="form-field">
+                Namn på ny grupp
+                <input
+                  className="input"
+                  required
+                  maxLength={80}
+                  value={newGroupName}
+                  onChange={(e) => setNewGroupName(e.target.value)}
+                  placeholder="Till exempel Göteborg · nästa vecka"
+                />
+              </label>
+              <GroupColorPicker
+                value={newGroupColor}
+                onChange={setNewGroupColor}
+              />
+              <p className="footnote">
+                Gruppen skapas när du sparar företaget.
+              </p>
+            </div>
+          )}
           <label className="form-field full">
             Status
             <select
@@ -214,9 +277,9 @@ export function LeadDialog({
             />
           </label>
         </div>
-        {error && (
+        {(error || (saveFailed && storageError)) && (
           <div role="alert" className="error-box">
-            {error}
+            {error || storageError}
           </div>
         )}
         <div className="dialog-footer">
@@ -260,8 +323,7 @@ export function LeadDialog({
                   );
                   return;
                 }
-                if (mutate((d) => updateLead(d, lead.id, parsed.data)))
-                  onCall(lead.id);
+                if (persistLead(parsed.data)) onCall(lead.id);
               }}
             >
               <Phone size={14} />

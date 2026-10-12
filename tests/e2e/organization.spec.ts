@@ -25,8 +25,8 @@ test("CSV source/group/date persist, groups can be managed, leads and import can
   await page.getByRole("button", { name: "Visa leads", exact: true }).click();
   await page.reload();
   await expect(
-    page.getByRole("button", { name: /^Kartleads Göteborg/ }),
-  ).toBeVisible();
+    page.getByRole("option", { name: /^Kartleads Göteborg/ }),
+  ).toBeAttached();
   await expect(
     page.getByRole("row").filter({ hasText: "Kartbolaget" }),
   ).toContainText("Google Maps");
@@ -50,10 +50,12 @@ test("CSV source/group/date persist, groups can be managed, leads and import can
   });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByLabel("Välj Kartbolaget", { exact: true }).check();
+  await page.getByRole("button", { name: "Ändra källa", exact: true }).click();
   await page.getByLabel("Källa för valda leads").fill("Instagram");
   await page
-    .getByRole("button", { name: "Spara gruppering", exact: true })
+    .getByRole("button", { name: "Spara ändring", exact: true })
     .click();
+  await page.getByRole("button", { name: /^Filter/ }).click();
   await page.getByLabel("Filtrera källa").selectOption("Instagram");
   await expect(
     page.getByRole("button", { name: /^Kartbolaget/ }),
@@ -65,11 +67,17 @@ test("CSV source/group/date persist, groups can be managed, leads and import can
   await page
     .getByRole("button", { name: "Hantera grupper", exact: true })
     .click();
-  await page.getByLabel("Namn på Kartleads Göteborg").fill("Prioriterade");
   await page
-    .getByRole("button", { name: "Spara gruppen Kartleads Göteborg" })
+    .getByRole("button", {
+      name: "Redigera gruppen Kartleads Göteborg",
+      exact: true,
+    })
     .click();
-  await expect(page.getByLabel("Namn på Prioriterade")).toBeVisible();
+  await page.getByLabel("Gruppnamn", { exact: true }).fill("Prioriterade");
+  await page.getByRole("button", { name: "Spara grupp", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Öppna gruppen Prioriterade" }),
+  ).toBeVisible();
   await page
     .getByRole("button", { name: "Ta bort gruppen Prioriterade" })
     .click();
@@ -77,8 +85,9 @@ test("CSV source/group/date persist, groups can be managed, leads and import can
   await expect(
     page.getByRole("button", { name: /^Kartbolaget/ }),
   ).toBeVisible();
+  await page.getByRole("button", { name: /^Kartbolaget/ }).click();
   await page
-    .getByRole("button", { name: "Ta bort Kartbolaget", exact: true })
+    .getByRole("button", { name: "Ta bort företag", exact: true })
     .click();
   await expect(page.getByRole("button", { name: /^Kartbolaget/ })).toHaveCount(
     0,
@@ -161,6 +170,7 @@ test("source/group/date filters and import-date sorting apply to legacy imports 
   await expect(page.locator("tbody tr").first()).toContainText(
     "Nyare företaget",
   );
+  await page.getByRole("button", { name: /^Filter/ }).click();
   await page.getByLabel("Importerad från datum").fill("2026-10-10");
   await expect(page.locator("tbody tr")).toHaveCount(1);
   await expect(page.locator("tbody tr")).toContainText("Nyare företaget");

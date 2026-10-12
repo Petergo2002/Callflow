@@ -58,6 +58,7 @@ function WorkspaceInner({ section }: { section: string }) {
   const router = useRouter();
   const [detail, setDetail] = useState<Lead | "new">();
   const [importing, setImporting] = useState(false);
+  const [groupContext, setGroupContext] = useState("");
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState("");
   const [mobile, setMobile] = useState(false);
@@ -160,8 +161,14 @@ function WorkspaceInner({ section }: { section: string }) {
       ? "Inställningar"
       : navigation.find((n) => n.id === section)?.label;
   const open = (l: Lead) => setDetail(l);
-  const add = () => setDetail("new");
-  const importLeads = () => setImporting(true);
+  const add = (groupId?: string) => {
+    setGroupContext(typeof groupId === "string" ? groupId : "");
+    setDetail("new");
+  };
+  const importLeads = (groupId?: string) => {
+    setGroupContext(typeof groupId === "string" ? groupId : "");
+    setImporting(true);
+  };
   return (
     <>
       {section === "focus" ? (
@@ -364,12 +371,17 @@ function WorkspaceInner({ section }: { section: string }) {
               ? "new"
               : data.leads.find((l) => l.id === detail.id) || detail
           }
+          initialGroupId={groupContext}
           onClose={() => setDetail(undefined)}
           onCall={onCall}
         />
       )}{" "}
       {importing && (
-        <ImportWizard onClose={() => setImporting(false)} onStart={onStart} />
+        <ImportWizard
+          initialGroupId={groupContext}
+          onClose={() => setImporting(false)}
+          onStart={onStart}
+        />
       )}
       <Dialog
         open={searching}
