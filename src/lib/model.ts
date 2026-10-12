@@ -88,6 +88,9 @@ export interface CallingSession {
   activeSince?: string;
   status: "active" | "paused" | "ended";
   selectedBatch: string;
+  selectedGroup?: string;
+  selectedSource?: string;
+  requirePhone?: boolean;
   includedStatuses: Status[];
   currentLeadId?: string;
   visited: string[];
@@ -297,18 +300,48 @@ export function sessionSeconds(s: CallingSession, now = Date.now()) {
       : 0)
   );
 }
+export function sessionIncludesLead(
+  data: Data,
+  lead: Lead,
+  session: CallingSession,
+) {
+  return (
+    (!session.selectedBatch ||
+      session.selectedBatch === "all" ||
+      lead.importBatchId === session.selectedBatch) &&
+    (!session.selectedGroup ||
+      (session.selectedGroup === "__none__"
+        ? !lead.groupId
+        : data.groups.some((g) => g.id === session.selectedGroup) &&
+          lead.groupId === session.selectedGroup)) &&
+    (!session.selectedSource ||
+      sourceName(data, lead) === session.selectedSource)
+  );
+}
+export function sessionScopeValid(data: Data, session: CallingSession) {
+  return (
+    (!session.selectedGroup ||
+      session.selectedGroup === "__none__" ||
+      data.groups.some((g) => g.id === session.selectedGroup)) &&
+    (!session.selectedBatch ||
+      session.selectedBatch === "all" ||
+      data.batches.some((b) => b.id === session.selectedBatch))
+  );
+}
 export function rankedLeads(
   data: Data,
   session: CallingSession,
   now = new Date(),
 ) {
+  if (!sessionScopeValid(data, session)) return [];
   const today = dateKey(now);
   const visited = new Set(session.visited);
   return data.leads
     .filter(
       (l) =>
         session.includedStatuses.includes(l.status) &&
-        (!session.selectedBatch || l.importBatchId === session.selectedBatch) &&
+        sessionIncludesLead(data, l, session) &&
+        (!session.requirePhone || !!l.phone.trim()) &&
         !visited.has(l.id) &&
         (!l.nextFollowUpAt || new Date(l.nextFollowUpAt) <= now),
     )

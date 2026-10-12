@@ -50,6 +50,9 @@ npm start
 ## 🚀 Kärnfunktioner
 
 ### 1. Fokusläge (Ringpass)
+- **Gruppval:** Välj en grupp, alla grupper eller leads utan grupp. Importlista, källa och statusar finns under **Anpassa urval**, med förhandsvisning av ringbara leads.
+- **Byt urval under passet:** **Ändra urval** pausar tiden. Spara och fortsätt med samma historik, poäng och genomgångna leads. Gruppvalet sparas även efter omladdning och synkning.
+- **Tydlig kö:** Leads utan telefonnummer hoppas över. Framtida återringningar visas separat och blir tillgängliga när deras tid infaller. Borttagna grupper och importlistor kräver ett nytt urval.
 - **Automatisk köprioritering:** Prioriterar automatiskt försenade uppföljningar, dagens uppföljningar, ej kontaktade företag och obesvarade leads.
 - **Blixtsnabb tangentbordsstyrning:**
   - **`1`**: Inget svar
@@ -59,10 +62,11 @@ npm start
   - **`5`**: Möte bokat (anger mötestid)
   - **`6`**: Kund (avslutad affär)
   - **`N` / `P`**: Nästa / Föregående företag utan att skapa samtal
+  - **Mellanslag**: Pausar / fortsätter (utanför fält och knappar)
   - **`/`**: Öppnar snabbsökning
   - **`Esc`**: Stänger öppna dialoger och paneler
 - **10-sekunders Ångra:** Återställer omedelbart samtal, status, uppföljningar och XP vid felregistrering utan att radera dina senare anteckningar.
-- **Aktiv tidsmätning:** Mäter endast aktiv samtalstid; pausar automatiskt vid inaktivitet eller sidbyte.
+- **Aktiv tidsmätning:** Mäter endast aktiv samtalstid; pausar vid sidbyte eller när fliken stängs.
 
 ### 2. Leads & Grupper
 - **Blixtsnabb sökning och filtrering:** Sök i realtid på företagsnamn, telefonnummer, ort, kontaktperson och bransch.

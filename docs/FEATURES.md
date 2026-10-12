@@ -8,6 +8,15 @@ Den här guiden går igenom alla funktioner och arbetsflöden i CALLFLOW, och hu
 
 Fokusläget är hjärtat i CALLFLOW. Det är ett distraktionfritt helskärmsläge optimerat för att genomföra många samtal på kort tid utan manuellt klickande eller administrativ friktion.
 
+### Välj grupp och urval
+Välj **alla grupper**, **utan grupp** eller en egen grupp innan du startar. Gruppen visar hur många leads den innehåller; förhandsvisningen visar hur många som går att ringa med ditt valda urval just nu och vilket företag som kommer först.
+
+Under **Anpassa urval** kan du välja en importlista, en källa och vilka statusar som ingår. Framtida återringningar och leads utan telefonnummer visas separat. Passet kan startas när minst ett lead går att ringa.
+
+Under passet visar raden ovanför företaget aktuell grupp och antalet leads som återstår. **Ändra urval** pausar passet och öppnar samma val. **Spara och fortsätt** behåller tid, samtal, XP och tidigare genomgångna leads. **Behåll pausat** lämnar ditt tidigare urval orört. Urvalet följer med vid omladdning, backup och molnsynkning.
+
+Om en grupp eller importlista tas bort pausas berörda pass. Välj ett nytt urval för att fortsätta; kön utökas aldrig automatiskt till alla leads. Föregående företag håller sig inom det aktuella grupp-, källa- och importurvalet. Ett direkt ringval utanför det pågående urvalet avslutar det passet och öppnar ett nytt pass i företagets grupp.
+
 ### Köprioriteringsalgoritm (`rankedLeads`)
 När ett ringpass startas sorteras alla tillgängliga leads automatiskt enligt följande prioriteringsordning:
 1. **Försenade uppföljningar**: Personer du lovat att återkomma till där datumet redan passerat.
@@ -16,7 +25,7 @@ När ett ringpass startas sorteras alla tillgängliga leads automatiskt enligt f
 4. **Inget svar**: Leads som inte svarat vid tidigare försök (äldsta först).
 5. **Övriga öppna statusar**: Intresserade eller leads som väntar på nästa kontakt.
 
-> Företag som du redan hanterat under pågående pass dyker inte upp igen förrän passet startas om.
+> Företag som du redan hanterat under pågående pass dyker inte upp igen förrän du väljer Föregående eller startar om listan. Framtida återringningar som ännu inte har hanterats kommer in i kön när tiden infaller. Leads utan telefonnummer hoppas över i nya pass.
 
 ### Tangentbordsgenvägar & 1-klicksregistrering
 När du ringer behöver du aldrig släppa tangentbordet:
@@ -31,6 +40,7 @@ När du ringer behöver du aldrig släppa tangentbordet:
 | **`6`** | Kund | Registrerar avslutad affär (+100 XP). |
 | **`N`** | Nästa lead | Hoppar över aktuellt lead utan att skapa samtalslogg. |
 | **`P`** | Föregående lead | Går tillbaka till föregående företag i samma pass. |
+| **Mellanslag** | Pausa / Fortsätt | Växlar mellan aktivt och pausat pass, utanför fält, länkar och knappar. |
 | **`/`** | Sök | Öppnar den globala snabbsökningen. |
 | **`Esc`** | Avbryt / Stäng | Stänger aktiva dialoger eller datumväljare. |
 

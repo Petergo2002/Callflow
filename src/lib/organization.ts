@@ -1,4 +1,4 @@
-import { Data, groupColors, id } from "./model";
+import { Data, groupColors, id, sessionSeconds } from "./model";
 import { deleteLeads } from "./engine";
 export function saveGroup(
   data: Data,
@@ -35,6 +35,17 @@ export function removeGroup(data: Data, groupId: string): Data {
   return {
     ...data,
     groups: data.groups.filter((g) => g.id !== groupId),
+    sessions: data.sessions.map((s) =>
+      s.selectedGroup === groupId && s.status !== "ended"
+        ? {
+            ...s,
+            status: "paused" as const,
+            activeDuration: sessionSeconds(s),
+            activeSince: undefined,
+            currentLeadId: undefined,
+          }
+        : s,
+    ),
     leads: data.leads.map((l) =>
       l.groupId === groupId
         ? { ...l, groupId: "", updatedAt: new Date().toISOString() }
@@ -73,7 +84,15 @@ export function removeImport(data: Data, batchId: string): Data {
     ...cleaned,
     batches: cleaned.batches.filter((b) => b.id !== batchId),
     sessions: cleaned.sessions.map((s) =>
-      s.selectedBatch === batchId ? { ...s, selectedBatch: "all" } : s,
+      s.selectedBatch === batchId && s.status !== "ended"
+        ? {
+            ...s,
+            status: "paused" as const,
+            activeDuration: sessionSeconds(s),
+            activeSince: undefined,
+            currentLeadId: undefined,
+          }
+        : s,
     ),
   };
 }

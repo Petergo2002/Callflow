@@ -14,6 +14,8 @@ import {
   ExternalLink,
   Flame,
   Headphones,
+  Layers3,
+  Keyboard,
   MapPin,
   Pause,
   Phone,
@@ -41,11 +43,15 @@ import {
   safeWebsite,
   sessionSeconds,
   shiftDate,
-  statuses,
+  sessionScopeValid,
+  sessionIncludesLead,
+  sourceName,
   stockholmInput,
 } from "@/lib/model";
 import {
   changeSession,
+  configureSession,
+  refreshSessionLead,
   logCall,
   nextLead,
   startSession,
@@ -57,6 +63,13 @@ import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
 import { duration, Empty, Progress, StatusBadge } from "./shared";
 import { SyncLabel, SyncNotice } from "./cloud-access";
+import { FocusSelection } from "./focus-selection";
+import {
+  FocusSelectionValue,
+  queueInfo,
+  scopeLabel,
+  selectionSession,
+} from "@/lib/focus-queue";
 const actions: {
   outcome: Status;
   title: string;
@@ -85,21 +98,32 @@ export function Focus({
   onImport,
 }: {
   onSearch: () => void;
-  onImport: () => void;
+  onImport: (groupId?: string) => void;
 }) {
   const { data, mutate } = useStore();
-  const [batch, setBatch] = useState("");
-  const [included, setIncluded] = useState<Status[]>(
-    data?.settings.defaultStatuses || [],
-  );
-  const [panel, setPanel] = useState<"followup" | "meeting">();
+  const [selection, setSelection] = useState<FocusSelectionValue>({
+    group: "",
+    batch: "",
+    source: "",
+    included: data?.settings.defaultStatuses || [],
+  });
+  const [editingSelection, setEditingSelection] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [copyError, setCopyError] = useState<string>();
+  const [panelFor, setPanelFor] = useState<{
+    type: "followup" | "meeting";
+    leadId: string;
+  }>();
   const [time, setTime] = useState("");
   const [timeError, setTimeError] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
   const locked = useRef(false);
   const [undo, setUndo] = useState<UndoCall>();
-  const [lastFeedback, setLastFeedback] = useState<{ message: string; icon?: string }>();
+  const [lastFeedback, setLastFeedback] = useState<{
+    message: string;
+    icon?: string;
+  }>();
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [summary, setSummary] = useState<CallingSession>();
@@ -109,6 +133,10 @@ export function Focus({
   const milestoneTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const active = data?.sessions.find((s) => s.status !== "ended");
   const lead = data?.leads.find((l) => l.id === active?.currentLeadId);
+  const panel = panelFor?.leadId === lead?.id ? panelFor?.type : undefined;
+  function setPanel(type?: "followup" | "meeting") {
+    setPanelFor(type && lead ? { type, leadId: lead.id } : undefined);
+  }
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => {
@@ -130,15 +158,36 @@ export function Focus({
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [active?.status]);
 
-  function copyPhone(phoneToCopy: string, leadId: string) {
-    if (typeof navigator !== "undefined" && navigator.clipboard) {
-      navigator.clipboard.writeText(phoneToCopy);
+  useEffect(() => {
+    if (!data || !active || active.status !== "active") return;
+    if (refreshSessionLead(data, active.id) !== data)
+      mutate((d) => refreshSessionLead(d, active.id));
+  }, [active, data, now, mutate]);
+
+  async function copyPhone(phoneToCopy: string, leadId: string) {
+    setCopyError(undefined);
+    try {
+      await navigator.clipboard.writeText(phoneToCopy);
       setCopiedId(leadId);
       if (copyTimer.current) clearTimeout(copyTimer.current);
       copyTimer.current = setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      setCopyError(leadId);
     }
   }
-
+  function editSelection() {
+    if (!active) return;
+    if (!mutate((d) => changeSession(d, active.id, "paused"))) return;
+    setPanel(undefined);
+    setUndo(undefined);
+    setSelection({
+      group: active.selectedGroup || "",
+      batch: active.selectedBatch === "all" ? "" : active.selectedBatch || "",
+      source: active.selectedSource || "",
+      included: [...active.includedStatuses],
+    });
+    setEditingSelection(true);
+  }
   function register(outcome: Status, followUpAt?: string, meetingAt?: string) {
     if (
       !lead ||
@@ -152,6 +201,7 @@ export function Focus({
     setBusy(true);
     const eventId = id();
     let inverse: UndoCall | undefined;
+    let earned = 0;
     const before = metrics(data, dateKey(), dateKey()).attempts;
     const ok = mutate((d) => {
       const r = logCall(d, {
@@ -163,18 +213,27 @@ export function Focus({
         meetingAt,
       });
       inverse = r.undo;
+      earned =
+        r.data.xp.reduce((sum, e) => sum + e.points, 0) -
+        d.xp.reduce((sum, e) => sum + e.points, 0);
       return r.data;
     });
     if (ok && inverse) {
       setUndo(inverse);
       if (outcome === "Möte bokat") {
-        setLastFeedback({ message: "Möte bokat! +30 XP", icon: "🎉" });
+        setLastFeedback({ message: `Möte bokat! +${earned} XP`, icon: "🎉" });
       } else if (outcome === "Kund") {
-        setLastFeedback({ message: "Ny kund! +100 XP", icon: "🏆" });
+        setLastFeedback({
+          message: `Kund registrerad! +${earned} XP`,
+          icon: "🏆",
+        });
       } else if (outcome === "Återkom senare") {
         setLastFeedback({ message: "Uppföljning schemalagd", icon: "⏰" });
       } else {
-        setLastFeedback({ message: "Samtalet sparat (+5 XP)", icon: "✓" });
+        setLastFeedback({
+          message: `Samtalet sparat (+${earned} XP)`,
+          icon: "✓",
+        });
       }
       if (undoTimer.current) clearTimeout(undoTimer.current);
       undoTimer.current = setTimeout(() => setUndo(undefined), 10000);
@@ -231,6 +290,25 @@ export function Focus({
         setPanel(undefined);
         return;
       }
+      if (
+        e.code === "Space" &&
+        active &&
+        !busy &&
+        !panel &&
+        !el.closest("button,a") &&
+        data &&
+        sessionScopeValid(data, active)
+      ) {
+        e.preventDefault();
+        mutate((d) =>
+          changeSession(
+            d,
+            active.id,
+            active.status === "active" ? "paused" : "active",
+          ),
+        );
+        return;
+      }
       if (!active || active.status !== "active" || busy) return;
       if (panel) return;
       const n = Number(e.key);
@@ -247,6 +325,20 @@ export function Focus({
     return () => window.removeEventListener("keydown", shortcut);
   });
   if (!data) return null;
+  const preview = selectionSession(
+    selection,
+    editingSelection ? active : undefined,
+  );
+  const previewQueue = queueInfo(data, preview, new Date(now));
+  const canStart =
+    sessionScopeValid(data, preview) && previewQueue.ready.length > 0;
+  const scopeValid = !active || sessionScopeValid(data, active);
+  const activeQueue = active
+    ? queueInfo(data, active, new Date(now))
+    : undefined;
+  const previousAvailable = active?.visited.some((id) =>
+    data.leads.some((l) => l.id === id && sessionIncludesLead(data, l, active)),
+  );
   const daily = metrics(data, dateKey(), dateKey());
   const sessionCalls = data.calls.filter((c) => c.sessionId === active?.id);
   const xp = data.xp
@@ -348,9 +440,18 @@ export function Focus({
           >
             <Search size={16} />
           </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Snabbkommandon"
+            onClick={() => setShortcutsOpen(true)}
+          >
+            <Keyboard size={16} />
+          </Button>
           {active && (
             <>
               <Button
+                disabled={busy || (!scopeValid && active.status === "paused")}
                 variant="secondary"
                 onClick={() => {
                   mutate((d) =>
@@ -398,60 +499,52 @@ export function Focus({
           <div className="eyebrow muted mt-6">Ditt fokusrum</div>
           <h1>Ett samtal i taget.</h1>
           <p>
-            Välj din lista, sätt på hörlurarna och hitta ditt flow. Vi tar hand
-            om resten.
+            Välj en grupp och fokusera på nästa samtal. Ditt urval, dina
+            anteckningar och dina resultat sparas under tiden.
           </p>
-          <label className="form-field">
-            Ringlista
-            <select
-              aria-label="Välj ringlista"
-              value={batch}
-              onChange={(e) => setBatch(e.target.value)}
+          <FocusSelection
+            data={data}
+            value={selection}
+            onChange={setSelection}
+            now={now}
+          />
+          <div className="focus-start-actions">
+            <Button
+              disabled={!canStart}
+              onClick={() =>
+                mutate((d) =>
+                  startSession(
+                    d,
+                    selection.batch,
+                    selection.included,
+                    undefined,
+                    { groupId: selection.group, source: selection.source },
+                  ),
+                )
+              }
             >
-              <option value="">Alla företag</option>
-              {data.batches.map((b) => (
-                <option value={b.id} key={b.id}>
-                  {b.filename}
-                </option>
-              ))}
-            </select>
-          </label>
-          <h3 className="mt-6">Inkludera statusar</h3>
-          <div className="checkboxes">
-            {statuses.map((s) => (
-              <label key={s}>
-                <input
-                  type="checkbox"
-                  checked={included.includes(s)}
-                  onChange={() =>
-                    setIncluded(
-                      included.includes(s)
-                        ? included.filter((v) => v !== s)
-                        : [...included, s],
-                    )
-                  }
-                />
-                {s}
-              </label>
-            ))}
-          </div>
-          <p className="footnote">
-            Försenade uppföljningar kommer först. Framtida återringningar väntar
-            till sitt klockslag.
-          </p>
-          <Button
-            disabled={!included.length || !data.leads.length}
-            onClick={() => mutate((d) => startSession(d, batch, included))}
-          >
-            <Phone size={14} />
-            Starta ringpass
-            <ArrowRight size={14} />
-          </Button>
-          {!data.leads.length && (
-            <Button variant="ghost" onClick={onImport}>
-              Importera din första lista
+              <Phone size={14} />
+              Starta ringpass
+              <ArrowRight size={14} />
             </Button>
-          )}
+            {!previewQueue.ready.length && (
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  onImport(
+                    selection.group && selection.group !== "__none__"
+                      ? selection.group
+                      : undefined,
+                  )
+                }
+              >
+                Importera leads
+              </Button>
+            )}
+            <Button variant="ghost" asChild>
+              <Link href="/leads">Hantera leads och grupper</Link>
+            </Button>
+          </div>
         </div>
       ) : (
         <main className="focus-content">
@@ -471,6 +564,34 @@ export function Focus({
               {xp} XP
             </span>
           </div>
+          <div className="focus-scope-bar">
+            <div>
+              <span className="flex">
+                <Layers3 size={15} />
+                <strong>{scopeLabel(data, active)}</strong>
+              </span>
+              <small>
+                {[
+                  active.selectedBatch && active.selectedBatch !== "all"
+                    ? data.batches.find((b) => b.id === active.selectedBatch)
+                        ?.filename || "Importlistan har tagits bort"
+                    : "",
+                  active.selectedSource || "",
+                  `${activeQueue!.ready.length + (lead && !activeQueue!.ready.some((l) => l.id === lead.id) ? 1 : 0)} kvar att ringa`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </small>
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={busy}
+              onClick={editSelection}
+            >
+              Ändra urval
+            </Button>
+          </div>
           {active.status === "paused" ? (
             <div className="pause-overlay">
               <Pause size={35} strokeWidth={1.5} />
@@ -479,7 +600,14 @@ export function Focus({
                 Ditt ringpass är sparat. Tidtagningen står still tills du
                 fortsätter.
               </p>
+              {!scopeValid && (
+                <p className="error-box">
+                  Gruppen eller importlistan har tagits bort. Ändra urvalet för
+                  att fortsätta.
+                </p>
+              )}
               <Button
+                disabled={!scopeValid}
                 onClick={() =>
                   mutate((d) => changeSession(d, active.id, "active"))
                 }
@@ -506,6 +634,16 @@ export function Focus({
                     <StatusBadge status={lead.status} />
                   </div>
                   <h1>{lead.companyName}</h1>
+                  <div className="focus-lead-origin">
+                    <span>
+                      {data.groups.find((g) => g.id === lead.groupId)?.name ||
+                        "Utan grupp"}
+                    </span>
+                    {sourceName(data, lead) !==
+                      data.groups.find((g) => g.id === lead.groupId)?.name && (
+                      <span>{sourceName(data, lead)}</span>
+                    )}
+                  </div>
                   <div className="focus-info">
                     {lead.industry && (
                       <span>
@@ -550,7 +688,10 @@ export function Focus({
                     <div>
                       {lead.phone ? (
                         <div className="flex items-center gap-3">
-                          <a className="phone-number" href={`tel:${lead.phone}`}>
+                          <a
+                            className="phone-number"
+                            href={`tel:${lead.phone}`}
+                          >
                             {lead.phone}
                           </a>
                           <button
@@ -575,6 +716,12 @@ export function Focus({
                         <span className="phone-number muted">
                           Telefon saknas
                         </span>
+                      )}
+                      {copyError === lead.id && (
+                        <small role="alert">
+                          Kunde inte kopiera. Markera telefonnumret och kopiera
+                          manuellt.
+                        </small>
                       )}
                       <span className="phone-caption">
                         {lead.nextFollowUpAt
@@ -757,7 +904,7 @@ export function Focus({
                 <Button
                   variant="ghost"
                   size="sm"
-                  disabled={busy || !active.visited.length}
+                  disabled={busy || !previousAvailable}
                   onClick={() => {
                     setPanel(undefined);
                     mutate((d) => nextLead(d, active.id, true));
@@ -784,13 +931,21 @@ export function Focus({
           ) : (
             <div className="panel">
               <Empty
-                title="Du har gått igenom din ringlista."
-                description="Framtida uppföljningar väntar till avtalad tid. Avsluta passet för att se dina resultat, eller återgå till ett tidigare företag."
+                title={
+                  activeQueue!.future.length
+                    ? "Alla leads som är redo är genomgångna."
+                    : "Du har gått igenom din ringlista."
+                }
+                description={
+                  activeQueue!.nextAt
+                    ? `${activeQueue!.future.length} leads väntar på sin återringningstid. Nästa: ${formatDate(activeQueue!.nextAt, true)}. Kön uppdateras automatiskt när det är dags.`
+                    : `${activeQueue!.missingPhone ? `${activeQueue!.missingPhone} leads saknar telefonnummer. ` : ""}Ändra urvalet för att ringa fler leads, eller avsluta och se dina resultat.`
+                }
               />
-              <div className="flex justify-center pb-8 gap-3">
+              <div className="focus-empty-actions">
                 <Button
                   variant="secondary"
-                  disabled={!active.visited.length}
+                  disabled={!previousAvailable}
                   onClick={() => mutate((d) => nextLead(d, active.id, true))}
                 >
                   <ArrowLeft size={14} />
@@ -798,6 +953,9 @@ export function Focus({
                 </Button>
                 <Button
                   variant="secondary"
+                  disabled={
+                    !rankedLeads(data, { ...active, visited: [] }).length
+                  }
                   onClick={() => {
                     mutate((d) => ({
                       ...d,
@@ -806,7 +964,10 @@ export function Focus({
                           ? {
                               ...s,
                               visited: [],
-                              currentLeadId: rankedLeads(d, { ...s, visited: [] })[0]?.id,
+                              currentLeadId: rankedLeads(d, {
+                                ...s,
+                                visited: [],
+                              })[0]?.id,
                             }
                           : s,
                       ),
@@ -872,6 +1033,91 @@ export function Focus({
           </motion.div>
         )}
       </AnimatePresence>
+      {editingSelection && active && (
+        <Dialog
+          open
+          title="Ändra ringpassets urval"
+          description="Passet är pausat. Tid, resultat och genomgångna leads behålls när du byter urval."
+          onOpenChange={setEditingSelection}
+        >
+          <FocusSelection
+            data={data}
+            value={selection}
+            onChange={setSelection}
+            session={active}
+            now={now}
+          />
+          <div className="dialog-footer">
+            <Button
+              variant="secondary"
+              onClick={() => setEditingSelection(false)}
+            >
+              Behåll pausat
+            </Button>
+            <Button
+              disabled={
+                !sessionScopeValid(data, preview) || !selection.included.length
+              }
+              onClick={() => {
+                if (
+                  mutate((d) =>
+                    configureSession(
+                      d,
+                      active.id,
+                      selection.batch,
+                      selection.included,
+                      { groupId: selection.group, source: selection.source },
+                    ),
+                  )
+                )
+                  setEditingSelection(false);
+              }}
+            >
+              Spara och fortsätt
+              <Play size={14} />
+            </Button>
+          </div>
+        </Dialog>
+      )}
+      <Dialog
+        open={shortcutsOpen}
+        onOpenChange={setShortcutsOpen}
+        title="Snabbkommandon"
+        description="Kommandona fungerar när du inte skriver i ett fält eller har en dialog öppen."
+      >
+        <dl className="focus-shortcuts">
+          <div>
+            <dt>Registrera resultat</dt>
+            <dd>
+              <kbd>1</kbd>–<kbd>6</kbd>
+            </dd>
+          </div>
+          <div>
+            <dt>Hoppa över / föregående</dt>
+            <dd>
+              <kbd>N</kbd> / <kbd>P</kbd>
+            </dd>
+          </div>
+          <div>
+            <dt>Pausa / fortsätt</dt>
+            <dd>
+              <kbd>Mellanslag</kbd>
+            </dd>
+          </div>
+          <div>
+            <dt>Sök företag</dt>
+            <dd>
+              <kbd>/</kbd>
+            </dd>
+          </div>
+          <div>
+            <dt>Stäng datumval</dt>
+            <dd>
+              <kbd>Esc</kbd>
+            </dd>
+          </div>
+        </dl>
+      </Dialog>
       {summary && (
         <SessionSummary
           data={data}
@@ -880,7 +1126,11 @@ export function Focus({
         />
       )}
       <div className="sr-only" aria-live="polite">
-        {lead ? `Nästa företag: ${lead.companyName}` : "Ringlista slut"}
+        {active?.status === "paused"
+          ? "Ringpass pausat"
+          : lead
+            ? `Nästa företag: ${lead.companyName}`
+            : "Ringlista slut"}
       </div>
     </div>
   );
@@ -932,6 +1182,10 @@ function SessionSummary({
       title="Bra jobbat. Du tog nästa steg."
       description="Ditt ringpass är avslutat och alla resultat är sparade."
     >
+      <p className="footnote">
+        Ringpass: {scopeLabel(data, session)}
+        {session.selectedSource ? ` · ${session.selectedSource}` : ""}
+      </p>
       <div className="summary-success">
         <Trophy size={34} />
         <h2>{xp} XP för ditt arbete</h2>

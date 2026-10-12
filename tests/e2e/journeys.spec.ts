@@ -80,6 +80,7 @@ test("500 CSV leads → call → keyboard → callback → pause/refresh → und
   ).toBeVisible();
   await page.getByRole("button", { name: "Visa leads", exact: true }).click();
   await page.getByRole("link", { name: "Fokusläge", exact: true }).click();
+  await page.getByText("Anpassa urval", { exact: true }).click();
   await page
     .getByLabel("Välj ringlista")
     .selectOption({ label: "företag.csv" });
@@ -288,7 +289,9 @@ test("storage quota failure does not claim success or lose the previous data", a
     .getByRole("dialog")
     .getByRole("button", { name: "Lägg till företag", exact: true })
     .click();
-  await expect(page.getByRole("alert")).toContainText("kunde inte sparas");
+  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
+    "kunde inte sparas",
+  );
   expect((await snapshot(page)).leads.length).toBe(0);
   await expect(page.getByRole("dialog")).toBeVisible();
 });

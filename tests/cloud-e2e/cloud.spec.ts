@@ -384,3 +384,81 @@ test("existing cloud examples are removed while real leads remain", async ({
     "Nästa företag AB",
   ]);
 });
+
+test("group selection and mid-session changes survive cloud sync and reopening", async ({
+  page,
+  browser,
+}) => {
+  const document = fixture();
+  document.groups = [
+    {
+      id: "a",
+      name: "Göteborg",
+      color: "#16724c",
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: "b",
+      name: "Stockholm",
+      color: "#3568b0",
+      createdAt: new Date().toISOString(),
+    },
+  ];
+  document.leads[0].groupId = "a";
+  document.leads[1].groupId = "b";
+  const server: Server = {
+    document,
+    revision: 1,
+    offline: false,
+    allowed: true,
+  };
+  await mockCloud(page, server);
+  await page.goto("/focus");
+  await page.getByLabel("Välj grupp för ringpass").selectOption("a");
+  await page
+    .getByRole("button", { name: "Starta ringpass", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Molnföretag AB", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Inget svar 1", exact: true }).click();
+  await expect(
+    page.getByRole("heading", {
+      name: "Du har gått igenom din ringlista.",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Sparat i Supabase", { exact: true }),
+  ).toBeVisible();
+  expect(server.document?.sessions[0].selectedGroup).toBe("a");
+  await page.getByRole("button", { name: "Ändra urval", exact: true }).click();
+  await page.getByLabel("Välj grupp för ringpass").selectOption("b");
+  await page
+    .getByRole("button", { name: "Spara och fortsätt", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Nästa företag AB", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Pausa", exact: true }).click();
+  await expect(
+    page.getByText("Sparat i Supabase", { exact: true }),
+  ).toBeVisible();
+  const other = await browser.newContext(),
+    second = await other.newPage();
+  await mockCloud(second, server);
+  await second.goto("/focus");
+  await expect(
+    second.getByRole("heading", { name: "Ta ett andetag.", exact: true }),
+  ).toBeVisible();
+  await second
+    .getByRole("button", { name: "Fortsätt ringpass", exact: true })
+    .click();
+  await expect(
+    second.getByRole("heading", { name: "Nästa företag AB", exact: true }),
+  ).toBeVisible();
+  expect(server.document?.calls).toHaveLength(1);
+  expect(server.document?.sessions[0].selectedGroup).toBe("b");
+  expect(server.document?.sessions[0].requirePhone).toBe(true);
+  await other.close();
+});

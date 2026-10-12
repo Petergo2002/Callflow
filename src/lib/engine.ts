@@ -13,6 +13,8 @@ import {
   outcomes,
   rankedLeads,
   sessionSeconds,
+  sessionIncludesLead,
+  sessionScopeValid,
 } from "./model";
 
 export function updateLead(data: Data, leadId: string, input: LeadInput) {
@@ -52,14 +54,25 @@ export function deleteLeads(data: Data, ids: string[]): Data {
     })),
   };
 }
+export interface SessionFilters {
+  groupId?: string;
+  source?: string;
+  requirePhone?: boolean;
+}
 export function startSession(
   data: Data,
   batch: string,
   included: Status[],
   leadId?: string,
+  filters: SessionFilters = {},
 ): Data {
   const active = data.sessions.find((s) => s.status !== "ended");
-  if (active) return changeSession(data, active.id, "active", leadId);
+  if (active) {
+    const picked = data.leads.find((l) => l.id === leadId);
+    if (!picked || sessionIncludesLead(data, picked, active))
+      return changeSession(data, active.id, "active", leadId);
+    data = changeSession(data, active.id, "ended");
+  }
   const now = new Date().toISOString();
   const s: CallingSession = {
     id: id(),
@@ -68,10 +81,22 @@ export function startSession(
     activeSince: now,
     status: "active",
     selectedBatch: batch,
+    selectedGroup: filters.groupId,
+    selectedSource: filters.source,
+    requirePhone: filters.requirePhone ?? true,
     includedStatuses: included,
     visited: [],
     currentLeadId: leadId,
   };
+  if (!sessionScopeValid(data, s))
+    throw new Error(
+      "Gruppen eller importlistan finns inte längre. Välj ett annat urval.",
+    );
+  if (
+    leadId &&
+    !data.leads.some((l) => l.id === leadId && sessionIncludesLead(data, l, s))
+  )
+    throw new Error("Företaget ingår inte i ringpassets urval.");
   if (!s.currentLeadId) s.currentLeadId = rankedLeads(data, s)[0]?.id;
   return { ...data, sessions: [...data.sessions, s] };
 }
@@ -83,21 +108,78 @@ export function changeSession(
 ): Data {
   return {
     ...data,
+    sessions: data.sessions.map((s) => {
+      if (s.id !== sessionId) return s;
+      if (status === "active" && !sessionScopeValid(data, s))
+        throw new Error(
+          "Gruppen eller importlistan har tagits bort. Ändra ringpassets urval innan du fortsätter.",
+        );
+      const current = data.leads.find(
+        (l) => l.id === (leadId || s.currentLeadId),
+      );
+      const currentLeadId =
+        current && sessionIncludesLead(data, current, s)
+          ? current.id
+          : status === "active"
+            ? rankedLeads(data, s)[0]?.id
+            : undefined;
+      return {
+        ...s,
+        status,
+        activeDuration: sessionSeconds(s),
+        activeSince: status === "active" ? new Date().toISOString() : undefined,
+        endedAt: status === "ended" ? new Date().toISOString() : undefined,
+        currentLeadId,
+      };
+    }),
+  };
+}
+export function configureSession(
+  data: Data,
+  sessionId: string,
+  batch: string,
+  included: Status[],
+  filters: SessionFilters,
+): Data {
+  if (!included.length) throw new Error("Välj minst en status för ringpasset.");
+  return {
+    ...data,
+    sessions: data.sessions.map((s) => {
+      if (s.id !== sessionId || s.status === "ended") return s;
+      const changed: CallingSession = {
+        ...s,
+        selectedBatch: batch,
+        selectedGroup: filters.groupId,
+        selectedSource: filters.source,
+        requirePhone: filters.requirePhone ?? true,
+        includedStatuses: included,
+        activeDuration: sessionSeconds(s),
+        status: "active",
+        activeSince: new Date().toISOString(),
+      };
+      if (!sessionScopeValid(data, changed))
+        throw new Error("Gruppen eller importlistan finns inte längre.");
+      const queue = rankedLeads(data, changed);
+      changed.currentLeadId = queue.some((l) => l.id === s.currentLeadId)
+        ? s.currentLeadId
+        : queue[0]?.id;
+      return changed;
+    }),
+  };
+}
+export function refreshSessionLead(data: Data, sessionId: string): Data {
+  const current = data.sessions.find((s) => s.id === sessionId);
+  if (!current || current.status !== "active") return data;
+  if (!sessionScopeValid(data, current))
+    return changeSession(data, sessionId, "paused");
+  const lead = data.leads.find((l) => l.id === current.currentLeadId);
+  if (lead && sessionIncludesLead(data, lead, current)) return data;
+  const next = rankedLeads(data, current)[0]?.id;
+  if (next === current.currentLeadId) return data;
+  return {
+    ...data,
     sessions: data.sessions.map((s) =>
-      s.id === sessionId
-        ? {
-            ...s,
-            status,
-            activeDuration: sessionSeconds(s),
-            activeSince:
-              status === "active" ? new Date().toISOString() : undefined,
-            endedAt: status === "ended" ? new Date().toISOString() : undefined,
-            currentLeadId:
-              leadId ||
-              s.currentLeadId ||
-              (status === "active" ? rankedLeads(data, s)[0]?.id : undefined),
-          }
-        : s,
+      s.id === sessionId ? { ...s, currentLeadId: next } : s,
     ),
   };
 }
@@ -112,8 +194,14 @@ export function nextLead(
       if (s.id !== sessionId) return s;
       if (previous) {
         const visited = [...s.visited];
-        const currentLeadId = visited.pop();
-        return currentLeadId ? { ...s, visited, currentLeadId } : s;
+        const index = visited.findLastIndex((id) =>
+          data.leads.some(
+            (l) => l.id === id && sessionIncludesLead(data, l, s),
+          ),
+        );
+        if (index < 0) return s;
+        const [currentLeadId] = visited.splice(index, 1);
+        return { ...s, visited, currentLeadId };
       }
       const visited = [
         ...new Set([
@@ -157,7 +245,8 @@ export function logCall(
     args.sessionId &&
     (!session ||
       session.status !== "active" ||
-      session.currentLeadId !== lead.id)
+      session.currentLeadId !== lead.id ||
+      !sessionIncludesLead(data, lead, session))
   )
     return { data };
   if (
@@ -313,7 +402,11 @@ export function undoCall(data: Data, undo: UndoCall): Data {
       s.id === undo.session?.id && s.status !== "ended"
         ? {
             ...s,
-            currentLeadId: call.leadId,
+            currentLeadId: data.leads.some(
+              (l) => l.id === call.leadId && sessionIncludesLead(data, l, s),
+            )
+              ? call.leadId
+              : s.currentLeadId,
             visited: s.visited.filter((v) => v !== call.leadId),
           }
         : s,

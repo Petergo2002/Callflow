@@ -88,11 +88,13 @@ function WorkspaceInner({ section }: { section: string }) {
         if (!mutate((d) => changeSession(d, active.id, "ended"))) return;
       }
       if (
-        !mutate((d) => startSession(d, batchId, data.settings.defaultStatuses))
+        !mutate((d) =>
+          startSession(d, batchId, data.settings.defaultStatuses, undefined, {
+            groupId: data.batches.find((b) => b.id === batchId)?.groupId,
+          }),
+        )
       )
         return;
-    } else if (active) {
-      if (!mutate((d) => changeSession(d, active.id, "active"))) return;
     }
     setImporting(false);
     router.push("/focus");
@@ -100,7 +102,12 @@ function WorkspaceInner({ section }: { section: string }) {
   function onCall(leadId: string) {
     if (!data) return;
     if (
-      mutate((d) => startSession(d, "", data.settings.defaultStatuses, leadId))
+      mutate((d) =>
+        startSession(d, "", data.settings.defaultStatuses, leadId, {
+          groupId:
+            data.leads.find((l) => l.id === leadId)?.groupId || "__none__",
+        }),
+      )
     ) {
       setDetail(undefined);
       setSearching(false);
