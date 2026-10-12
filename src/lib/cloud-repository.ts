@@ -31,7 +31,11 @@ export function transportFor(ownerId: string): CloudTransport {
     async read() {
       const { data, error } = await client
         .rpc("callflow_read_workspace")
-        .maybeSingle();
+        .maybeSingle()
+        .overrideTypes<
+          { document: unknown; revision: number },
+          { merge: false }
+        >();
       if (error) throw error;
       return data
         ? {

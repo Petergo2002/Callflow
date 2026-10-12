@@ -26,6 +26,47 @@ async function mockCloud(page: Page, server: Server, authenticated = true) {
         user_metadata: {},
         created_at: "2026-10-12T10:00:00Z",
       });
+    if (u.pathname === "/auth/v1/token") {
+      const body = request.postDataJSON();
+      expect(u.searchParams.get("grant_type")).toBe("password");
+      if (body.email !== email || body.password !== "test-password")
+        return send(
+          { code: "invalid_credentials", message: "Invalid login credentials" },
+          400,
+        );
+      const payload = btoa(
+        JSON.stringify({
+          sub: owner,
+          email,
+          role: "authenticated",
+          exp: Math.floor(Date.now() / 1000) + 3600,
+        }),
+      );
+      return send({
+        access_token: `eyJhbGciOiJIUzI1NiJ9.${payload}.test-only`,
+        refresh_token: "test-only",
+        token_type: "bearer",
+        expires_in: 3600,
+        user: {
+          id: owner,
+          email,
+          aud: "authenticated",
+          role: "authenticated",
+          app_metadata: { provider: "email", providers: ["email"] },
+          user_metadata: {},
+          created_at: "2026-10-12T10:00:00Z",
+        },
+      });
+    }
+    if (u.pathname === "/rest/v1/rpc/callflow_read_workspace") {
+      if (server.offline) return route.abort("failed");
+      expect(request.headers().authorization).toContain("Bearer ");
+      return send(
+        server.document
+          ? [{ document: server.document, revision: server.revision }]
+          : [],
+      );
+    }
     if (u.pathname === "/auth/v1/logout") return send({});
     if (u.pathname === "/rest/v1/callflow_access")
       return send(server.allowed ? [{ email }] : []);
@@ -118,7 +159,7 @@ function fixture() {
   ];
   return d;
 }
-test("private sign-in page, local fallback and rejected email never send an email", async ({
+test("password login, rejected credentials and no registration or magic-link account creation", async ({
   page,
 }) => {
   const server: Server = {
@@ -127,21 +168,51 @@ test("private sign-in page, local fallback and rejected email never send an emai
     offline: false,
     allowed: true,
   };
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().startsWith(url))
+      requests.push(new URL(request.url()).pathname);
+  });
   await mockCloud(page, server, false);
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "Mer flow. På alla dina enheter." }),
+    page.getByRole("heading", { name: "Välkommen tillbaka." }),
   ).toBeVisible();
-  await page.getByLabel("Din mejladress").fill("someone-else@example.com");
-  await page.getByRole("button", { name: "Skicka inloggningslänk" }).click();
   await expect(
-    page.getByRole("alert").filter({ hasText: "inte åtkomst" }),
+    page.getByRole("button", {
+      name: /Skapa konto|Registrera|Öppna lokalt arbetsrum/,
+    }),
+  ).toHaveCount(0);
+  await page.getByLabel("Din mejladress").fill("someone-else@example.com");
+  await page.getByLabel("Lösenord", { exact: true }).fill("wrong-password");
+  await page.getByRole("button", { name: "Logga in", exact: true }).click();
+  await expect(
+    page
+      .getByRole("alert")
+      .filter({ hasText: "Kontrollera mejladress och lösenord" }),
   ).toBeVisible();
   expect(server.document).toBeNull();
-  await page.getByRole("button", { name: "Öppna lokalt arbetsrum" }).click();
+  const retired = await page.request.post("/api/auth/login", {
+    data: { email },
+  });
+  expect(retired.status()).toBe(410);
+  await page.getByLabel("Din mejladress").fill(email);
+  await page.getByLabel("Lösenord", { exact: true }).fill("test-password");
+  await page.getByRole("button", { name: "Visa lösenord" }).click();
+  await expect(page.getByLabel("Lösenord", { exact: true })).toHaveAttribute(
+    "type",
+    "text",
+  );
+  await page.getByRole("button", { name: "Dölj lösenord" }).click();
+  await page.getByRole("button", { name: "Logga in", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "En bra dag för nya möjligheter." }),
   ).toBeVisible();
+  await expect(
+    page.getByText("Sparat i Supabase", { exact: true }),
+  ).toBeVisible();
+  expect(requests).not.toContain("/auth/v1/signup");
+  expect(requests).not.toContain("/auth/v1/otp");
 });
 test("migrates local history once and keeps the original local copy", async ({
   page,
