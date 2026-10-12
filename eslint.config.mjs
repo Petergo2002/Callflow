@@ -9,6 +9,8 @@ export default defineConfig([
     ".next-dev/**",
     ".next-test/**",
     ".next-cloud-test/**",
+    ".next-auth-test/**",
+    "test-results-auth/**",
     "test-results/**",
     "test-results-cloud/**",
     "playwright-report/**",

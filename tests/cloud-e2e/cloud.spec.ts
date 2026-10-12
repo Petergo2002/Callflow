@@ -213,6 +213,18 @@ test("password login, rejected credentials and no registration or magic-link acc
   ).toBeVisible();
   expect(requests).not.toContain("/auth/v1/signup");
   expect(requests).not.toContain("/auth/v1/otp");
+  await page.goto("/settings");
+  await expect(
+    page.getByRole("button", { name: "Återställ demodata" }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Logga ut", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Välkommen tillbaka." }),
+  ).toBeVisible();
+  await page.goto("/leads");
+  await expect(
+    page.getByRole("heading", { name: "Välkommen tillbaka." }),
+  ).toBeVisible();
 });
 test("migrates local history once and keeps the original local copy", async ({
   page,
@@ -344,4 +356,31 @@ test("a different authenticated account cannot open the workspace", async ({
       ),
     ),
   ).toBeNull();
+});
+
+test("existing cloud examples are removed while real leads remain", async ({
+  page,
+}) => {
+  const document = fixture();
+  document.leads[0].demo = true;
+  const server: Server = {
+    document,
+    revision: 1,
+    offline: false,
+    allowed: true,
+  };
+  await mockCloud(page, server);
+  await page.goto("/leads");
+  await expect(
+    page.getByText("Sparat i Supabase", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /^Nästa företag AB/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /^Molnföretag AB/ }),
+  ).toHaveCount(0);
+  expect(server.document?.leads.map((l) => l.companyName)).toEqual([
+    "Nästa företag AB",
+  ]);
 });

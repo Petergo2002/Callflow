@@ -4,14 +4,18 @@ Ett CRM för svensk soloförsäljning med privat Supabase-lagring och lokal säk
 
 ## Starta
 
-Kräver Node.js 22 eller senare.
+Kräver Node.js 22.x.
 
 ```sh
 npm install
 npm run dev
 ```
 
-Öppna http://127.0.0.1:3000. För produktion:
+Öppna http://127.0.0.1:3000. Utloggade användare möter alltid inloggningssidan, även på direktlänkar till leads eller fokus. Inloggade användare öppnar sitt riktiga arbetsrum. Inga demoposter skapas. Gamla poster som uttryckligen är märkta som demo tas bort; egna företag och historik behålls.
+
+I Vercel måste `NEXT_PUBLIC_SUPABASE_URL=https://wnexrlghlmotkysrofkl.supabase.co` och `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` finnas i projektets Environment Variables för Production. Publicera om efter att variablerna lagts till. Saknas de visas inloggningssidan med ett konfigurationsfel; appen öppnar aldrig ett demoarbetsrum som fallback.
+
+För produktion:
 
 ```sh
 npm run build
@@ -59,7 +63,7 @@ Appen läser dessa tabeller genom `callflow_read_workspace`, en funktion med SEC
 
 Ändringar sparas först i webbläsarens lokala kopia, sedan i Supabase. Indikatorn skiljer mellan **Sparat lokalt · synkar**, **Sparat i Supabase**, nätavbrott och versionskonflikter. En kö ser till att senare anteckningar inte försvinner när en tidigare skrivning pågår. Versionskontroll förhindrar att två enheter tyst skriver över varandra. Vid en konflikt kan du välja molnversionen eller din lokala version; båda sparas först som konfliktkopia som går att hämta i Inställningar. Molnändringar hämtas när fönstret får fokus och var 30:e sekund när inga osynkade ändringar finns.
 
-Om nätverket bryts under arbetet finns ändringarna kvar lokalt och synkas när anslutningen återkommer. Första inloggningen/verifieringen på en enhet kräver nätåtkomst. Ett separat lokalt utvecklingsläge kan aktiveras med `NEXT_PUBLIC_CALLFLOW_STORAGE_MODE=local`. Molnappen kräver inloggning.
+Om nätverket bryts under arbetet finns ändringarna kvar lokalt och synkas när anslutningen återkommer. Första inloggningen/verifieringen på en enhet kräver nätåtkomst. Ett separat lokalt utvecklingsläge kan aktiveras med `NEXT_PUBLIC_CALLFLOW_STORAGE_MODE=local` endast med `next dev`. Det börjar tomt. Inställningen ignoreras i produktion, som alltid kräver inloggning.
 
 **Inställningar** har full JSON-säkerhetskopiering och validerad återställning. CSV innehåller företagsuppgifter och kontaktstatistik; JSON innehåller också samtal, XP, uppföljningar, inställningar och pass. Tom eller raderad demodata återställs aldrig automatiskt.
 

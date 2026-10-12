@@ -84,9 +84,6 @@ export function CloudAccess({ children }: { children: ReactNode }) {
             <p className="footnote">
               All historik, mål och XP följer med. Den gamla lokala kopian
               behålls som säkerhetskopia.
-              {legacy.leads.some((l) => l.demo)
-                ? " Även tydligt märkta demoföretag följer med."
-                : ""}
             </p>
             <div className="stack mt-6">
               <Button onClick={store.migrateLegacy}>

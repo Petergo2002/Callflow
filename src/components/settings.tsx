@@ -12,7 +12,6 @@ import {
   Upload,
 } from "lucide-react";
 import { defaults, emptyData, GoalSettings, statuses } from "@/lib/model";
-import { demoData } from "@/lib/demo";
 import { useStore } from "@/lib/store";
 import { download, exportCSV } from "@/lib/import";
 import { validateData } from "@/lib/repository";
@@ -329,25 +328,6 @@ export function Settings({ onImport }: { onImport: () => void }) {
             <h2>En ny start</h2>
             <p>Hämta en säkerhetskopia innan du återställer data.</p>
             <div className="settings-actions">
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      "Ersätt all data med en ny uppsättning fiktiva demoföretag?",
-                    )
-                  ) {
-                    const demo = demoData();
-                    if (replace(demo)) {
-                      setSettings(demo.settings);
-                      setSaved(false);
-                    }
-                  }
-                }}
-              >
-                <RotateCcw size={14} />
-                Återställ demodata
-              </Button>
               <Button
                 variant="ghost"
                 className="danger-text"

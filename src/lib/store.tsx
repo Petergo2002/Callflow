@@ -9,11 +9,15 @@ import {
 } from "react";
 import { usePathname } from "next/navigation";
 import { Data, emptyData } from "./model";
-import { demoData } from "./demo";
+import { withoutDemo } from "./clean-data";
 import { LocalStorageRepository, Repository, STORAGE_KEY } from "./repository";
 import { changeSession } from "./engine";
 import { CloudRepository, SyncStatus, transportFor } from "./cloud-repository";
-import { cloudConfigured, supabaseClient } from "./supabase";
+import {
+  cloudConfigured,
+  localDevelopmentEnabled,
+  supabaseClient,
+} from "./supabase";
 interface Store {
   data: Data | null;
   error: string;
@@ -43,7 +47,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [localRepository] = useState(() => new LocalStorageRepository());
   const repositoryRef = useRef<Repository>(localRepository);
   const [repository, setRepository] = useState<Repository>(localRepository);
-  const [localMode, setLocalMode] = useState(() => !cloudConfigured());
+  const [localMode, setLocalMode] = useState(() => localDevelopmentEnabled());
   const [authStatus, setAuthStatus] = useState<Store["authStatus"]>("loading");
   const [userEmail, setUserEmail] = useState("");
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("loading");
@@ -59,6 +63,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     let booting = false;
     const show = (next: Data) => {
       if (stopped) return;
+      next = withoutDemo(next);
       ref.current = next;
       setData(next);
     };
@@ -69,7 +74,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const localLoad = () => {
       try {
         const loaded = localRepository.load();
-        let next = loaded ?? demoData();
+        let next = withoutDemo(loaded ?? emptyData());
         const active = next.sessions.find((s) => s.status === "active");
         if (active && window.location.pathname !== "/focus")
           next = changeSession(next, active.id, "paused");
@@ -131,7 +136,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         );
         cloudRepository = repo;
         configure(repo);
-        const next = await repo.open();
+        const loaded = await repo.open();
+        const next = withoutDemo(loaded);
+        if (next !== loaded && repo.status !== "conflict") repo.save(next);
         if (stopped) {
           repo.dispose();
           return;
@@ -143,7 +150,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (repo.revision === 0) {
           let hasLegacy = false;
           try {
-            const candidate = localRepository.load();
+            const previous = localRepository.load();
+            const candidate = previous ? withoutDemo(previous) : null;
             if (
               candidate &&
               (candidate.leads.length ||
@@ -170,6 +178,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     let unsubscribe: () => void = () => {};
     if (localMode) {
       localLoad();
+    } else if (!cloudConfigured()) {
+      queueMicrotask(() => {
+        if (stopped) return;
+        setAuthStatus("signed-out");
+        setError(
+          "Inloggningen är inte konfigurerad. Lägg till NEXT_PUBLIC_SUPABASE_URL och NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY i miljöinställningarna och publicera appen igen.",
+        );
+      });
     } else {
       const client = supabaseClient();
       const { data: listener } = client.auth.onAuthStateChange((event) => {
@@ -272,6 +288,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => q.removeEventListener("change", apply);
   }, [data]);
   function replace(next: Data) {
+    next = withoutDemo(next);
     try {
       repositoryRef.current.save(next);
       ref.current = next;
@@ -339,6 +356,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (replace(ref.current ?? emptyData())) setLegacy(null);
   }
   function changeMode(local: boolean) {
+    if (local && !localDevelopmentEnabled()) return;
     const active = ref.current?.sessions.find((s) => s.status === "active");
     if (active && ref.current)
       replace(changeSession(ref.current, active.id, "paused"));

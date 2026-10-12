@@ -1,9 +1,27 @@
 import { test, expect } from "@playwright/test";
+import { emptyData, makeLead } from "../../src/lib/model";
 test("desktop, focus, dark theme and mobile visual verification", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
+  const fixture = emptyData();
+  fixture.leads = [
+    makeLead({
+      companyName: "Testföretag AB",
+      phone: "0701234567",
+      website: "",
+      industry: "",
+      city: "",
+      contactName: "",
+      notes: "",
+      status: "Ej kontaktad",
+    }),
+  ];
+  await page.addInitScript((d) => {
+    if (!localStorage.getItem("callflow.data.v1"))
+      localStorage.setItem("callflow.data.v1", JSON.stringify(d));
+  }, fixture);
   await page.goto("/");
   await expect(
     page.getByRole("heading", { name: "En bra dag för nya möjligheter." }),

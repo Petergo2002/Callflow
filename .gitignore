@@ -12,3 +12,6 @@ playwright-report/
 supabase/.temp/
 .next-cloud-test/
 test-results-cloud/
+
+.next-auth-test/
+test-results-auth/
