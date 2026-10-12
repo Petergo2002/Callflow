@@ -64,6 +64,18 @@ export function transportFor(ownerId: string): CloudTransport {
     },
   };
 }
+// Postgres JSONB and schema upgrades may reorder object keys without changing data.
+function snapshotJSON(value: unknown): string {
+  return JSON.stringify(value, (_key, item) =>
+    item && typeof item === "object" && !Array.isArray(item)
+      ? Object.fromEntries(
+          Object.keys(item)
+            .sort()
+            .map((key) => [key, item[key]]),
+        )
+      : item,
+  );
+}
 export class CloudRepository implements Repository {
   readonly cacheKey: string;
   status: SyncStatus = "loading";
@@ -141,7 +153,7 @@ export class CloudRepository implements Repository {
     if (cached?.dirty) {
       if (
         remote &&
-        JSON.stringify(remote.document) === JSON.stringify(cached.document)
+        snapshotJSON(remote.document) === snapshotJSON(cached.document)
       ) {
         this.state = { ...remote, dirty: false };
         this.cacheState(this.state);
@@ -188,7 +200,7 @@ export class CloudRepository implements Repository {
   save(document: Data) {
     if (!this.state) throw new Error("Arbetsrummet är inte inläst ännu.");
     const cached = this.cached();
-    if (cached && JSON.stringify(cached) !== JSON.stringify(this.state)) {
+    if (cached && snapshotJSON(cached) !== snapshotJSON(this.state)) {
       this.adoptCache();
       throw new Error(
         "Arbetsrummet ändrades i en annan flik. Senaste versionen har lästs in; prova ändringen igen.",
@@ -245,8 +257,7 @@ export class CloudRepository implements Repository {
           const remote = await this.transport.read();
           if (
             remote &&
-            JSON.stringify(remote.document) ===
-              JSON.stringify(snapshot.document)
+            snapshotJSON(remote.document) === snapshotJSON(snapshot.document)
           )
             revision = remote.revision;
           else throw e;
@@ -305,8 +316,7 @@ export class CloudRepository implements Repository {
   }
   adoptCache() {
     const cached = this.cached();
-    if (!cached || JSON.stringify(cached) === JSON.stringify(this.state))
-      return;
+    if (!cached || snapshotJSON(cached) === snapshotJSON(this.state)) return;
     this.state = cached;
     this.generation++;
     this.emit(cached.dirty ? "syncing" : "synced", "", cached.document);

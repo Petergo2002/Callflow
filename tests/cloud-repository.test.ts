@@ -212,6 +212,45 @@ describe("Supabase synkning", () => {
     expect(db.writes).toHaveLength(1);
     b.dispose();
   });
+  it("acknowledges committed data when JSONB returns object keys in a different order", async () => {
+    vi.useFakeTimers();
+    const db = server(),
+      disk = cache();
+    const reordered = {
+      ...db.transport,
+      async read() {
+        const remote = await db.transport.read();
+        if (!remote) return remote;
+        const document = JSON.parse(
+          JSON.stringify(remote.document, (_key, value) =>
+            value && typeof value === "object" && !Array.isArray(value)
+              ? Object.fromEntries(
+                  Object.keys(value)
+                    .sort()
+                    .reverse()
+                    .map((k) => [k, value[k]]),
+                )
+              : value,
+          ),
+        );
+        return { ...remote, document };
+      },
+      async write(d: Data, revision: number) {
+        await db.transport.write(d, revision);
+        throw new Error("response lost");
+      },
+    };
+    const a = new CloudRepository(reordered, disk, "owner");
+    await a.open();
+    a.save(fixture());
+    await a.flush();
+    a.dispose();
+    const b = new CloudRepository(reordered, disk, "owner");
+    await b.open();
+    expect(b.status).toBe("synced");
+    expect(db.writes).toHaveLength(1);
+    b.dispose();
+  });
   it("never overwrites corrupted cache or claims success when local persistence fails", async () => {
     const db = server(),
       disk = cache();

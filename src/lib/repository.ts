@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Data, leadInput, statuses } from "./model";
+import { Data, leadInput, statuses, groupColors } from "./model";
 
 const iso = z.string().datetime();
 const dataSchema = z.object({
@@ -14,6 +14,7 @@ const dataSchema = z.object({
       lastContactedAt: iso.optional(),
       nextFollowUpAt: iso.optional(),
       importBatchId: z.string().optional(),
+      importedAt: iso.optional(),
       demo: z.boolean().optional(),
     }),
   ),
@@ -62,6 +63,8 @@ const dataSchema = z.object({
       importedCount: z.number(),
       duplicateCount: z.number(),
       rejectedCount: z.number(),
+      source: z.string().max(100).optional(),
+      groupId: z.string().optional(),
       demo: z.boolean().optional(),
     }),
   ),
@@ -84,6 +87,16 @@ const dataSchema = z.object({
     theme: z.enum(["light", "dark", "system"]),
     defaultStatuses: z.array(z.enum(statuses)),
   }),
+  groups: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        name: z.string().trim().min(1).max(80),
+        color: z.enum(groupColors),
+        createdAt: iso,
+      }),
+    )
+    .default([]),
 });
 export const STORAGE_KEY = "callflow.data.v1";
 export interface Repository {
@@ -119,6 +132,14 @@ export class LocalStorageRepository implements Repository {
 export function validateData(value: unknown): Data {
   const d = dataSchema.parse(value);
   const leads = new Set(d.leads.map((l) => l.id));
+  const groups = new Set(d.groups.map((g) => g.id));
+  if (
+    groups.size !== d.groups.length ||
+    d.leads.some((l) => l.groupId && !groups.has(l.groupId))
+  )
+    throw new Error(
+      "Grupperna innehåller dubbla ID:n eller saknade gruppreferenser.",
+    );
   if (
     leads.size !== d.leads.length ||
     new Set(d.calls.map((c) => c.id)).size !== d.calls.length ||

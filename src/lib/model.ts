@@ -45,6 +45,8 @@ export const leadInput = z.object({
   contactName: z.string().trim().max(300),
   notes: z.string().max(20000),
   status: z.enum(statuses),
+  source: z.string().trim().max(100).optional(),
+  groupId: z.string().max(100).optional(),
 });
 export type LeadInput = z.infer<typeof leadInput>;
 export interface Lead extends LeadInput {
@@ -56,6 +58,7 @@ export interface Lead extends LeadInput {
   lastContactedAt?: string;
   nextFollowUpAt?: string;
   importBatchId?: string;
+  importedAt?: string;
   demo?: boolean;
 }
 export interface CallLog {
@@ -99,6 +102,28 @@ export interface GoalSettings {
   theme: "light" | "dark" | "system";
   defaultStatuses: Status[];
 }
+export const groupColors = [
+  "#16724c",
+  "#3568b0",
+  "#8b5db8",
+  "#c47b29",
+  "#b94f68",
+  "#64748b",
+] as const;
+export const leadSources = [
+  "Google Maps",
+  "Instagram",
+  "Facebook",
+  "LinkedIn",
+  "Webbplats",
+  "Manuellt",
+];
+export interface LeadGroup {
+  id: string;
+  name: string;
+  color: string;
+  createdAt: string;
+}
 export interface ImportBatch {
   id: string;
   filename: string;
@@ -106,6 +131,8 @@ export interface ImportBatch {
   importedCount: number;
   duplicateCount: number;
   rejectedCount: number;
+  source?: string;
+  groupId?: string;
   demo?: boolean;
 }
 export interface XPEvent {
@@ -124,6 +151,7 @@ export interface Data {
   batches: ImportBatch[];
   xp: XPEvent[];
   settings: GoalSettings;
+  groups: LeadGroup[];
 }
 export const defaults: GoalSettings = {
   dailyCallTarget: 50,
@@ -149,6 +177,7 @@ export const emptyData = (): Data => ({
   batches: [],
   xp: [],
   settings: { ...defaults },
+  groups: [],
 });
 export const id = () => crypto.randomUUID();
 export function normalizePhone(v: string) {
@@ -246,12 +275,13 @@ export function fromStockholm(value: string) {
     );
   return result;
 }
-export function formatDate(v?: string, withTime = false) {
+export function formatDate(v?: string, withTime = false, withYear = false) {
   return v
     ? new Intl.DateTimeFormat("sv-SE", {
         timeZone: "Europe/Stockholm",
         day: "numeric",
         month: "short",
+        ...(withYear ? { year: "numeric" as const } : {}),
         ...(withTime ? { hour: "2-digit", minute: "2-digit" } : {}),
       }).format(new Date(v))
     : "—";
@@ -352,4 +382,23 @@ export function metrics(data: Data, start: string, end: string) {
     answerRate: calls.length ? (answered / calls.length) * 100 : 0,
     conversion: calls.length ? (meetings / calls.length) * 100 : 0,
   };
+}
+
+export function importDate(data: Data, lead: Lead) {
+  return (
+    lead.importedAt ||
+    data.batches.find((b) => b.id === lead.importBatchId)?.importedAt ||
+    ""
+  );
+}
+export function sourceName(data: Data, lead: Lead) {
+  return (
+    lead.source ||
+    data.batches.find((b) => b.id === lead.importBatchId)?.source ||
+    (lead.importBatchId ? "Ej angiven" : "Manuellt")
+  );
+}
+
+export function formatImportDate(value?: string, withTime = false) {
+  return formatDate(value, withTime, true);
 }

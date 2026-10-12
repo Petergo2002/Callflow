@@ -12,10 +12,26 @@ import {
   Search,
   Trash2,
   Upload,
+  FolderPlus,
+  Folder,
+  CalendarDays,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useStore } from "@/lib/store";
-import { Lead, Status, formatDate, safeWebsite, statuses } from "@/lib/model";
+import {
+  Lead,
+  Status,
+  formatDate,
+  formatImportDate,
+  safeWebsite,
+  statuses,
+  importDate,
+  sourceName,
+  dateKey,
+  leadSources,
+} from "@/lib/model";
+import { organizeLeads, removeImport } from "@/lib/organization";
+import { LeadGroups } from "./lead-groups";
 import { deleteLeads } from "@/lib/engine";
 import { download, exportCSV } from "@/lib/import";
 import { Button } from "./ui/button";
@@ -43,6 +59,13 @@ export function Leads({
   const [status, setStatus] = useState(params.get("status") || "");
   const [industry, setIndustry] = useState("");
   const [batch, setBatch] = useState("");
+  const [source, setSource] = useState("");
+  const [group, setGroup] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [managingGroups, setManagingGroups] = useState(false);
+  const [bulkGroup, setBulkGroup] = useState("");
+  const [bulkSource, setBulkSource] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [sort, setSort] = useState<keyof Lead>("createdAt");
   const [ascending, setAscending] = useState(false);
@@ -61,17 +84,60 @@ export function Leads({
             (!status || l.status === status) &&
             (!industry || l.industry === industry) &&
             (!batch || l.importBatchId === batch) &&
+            (!source || sourceName(data!, l) === source) &&
+            (!group ||
+              (group === "__none__" ? !l.groupId : l.groupId === group)) &&
+            (!fromDate ||
+              (importDate(data!, l) &&
+                dateKey(importDate(data!, l)) >= fromDate)) &&
+            (!toDate ||
+              (importDate(data!, l) &&
+                dateKey(importDate(data!, l)) <= toDate)) &&
             [l.companyName, l.phone, l.city, l.contactName, l.industry].some(
               (v) => v.toLowerCase().includes(deferred.toLowerCase()),
             ),
         )
-        .sort(
-          (a, b) =>
-            String(a[sort] ?? "").localeCompare(String(b[sort] ?? ""), "sv", {
-              numeric: true,
-            }) * (ascending ? 1 : -1),
+        .sort((a, b) =>
+          sort === "importedAt" &&
+          (!importDate(data!, a) || !importDate(data!, b))
+            ? importDate(data!, a)
+              ? -1
+              : importDate(data!, b)
+                ? 1
+                : 0
+            : String(
+                sort === "importedAt"
+                  ? importDate(data!, a)
+                  : sort === "source"
+                    ? sourceName(data!, a)
+                    : (a[sort] ?? ""),
+              ).localeCompare(
+                String(
+                  sort === "importedAt"
+                    ? importDate(data!, b)
+                    : sort === "source"
+                      ? sourceName(data!, b)
+                      : (b[sort] ?? ""),
+                ),
+                "sv",
+                {
+                  numeric: true,
+                },
+              ) * (ascending ? 1 : -1),
         ) || [],
-    [data?.leads, status, industry, batch, deferred, sort, ascending],
+    [
+      data,
+      status,
+      industry,
+      batch,
+      source,
+      group,
+      fromDate,
+      toDate,
+      deferred,
+      sort,
+      ascending,
+    ],
   );
   if (!data) return null;
   const pageCount = Math.max(1, Math.ceil(filtered.length / 50));
@@ -94,6 +160,10 @@ export function Leads({
           </p>
         </div>
         <div className="flex">
+          <Button variant="secondary" onClick={() => setManagingGroups(true)}>
+            <FolderPlus size={14} />
+            Hantera grupper
+          </Button>
           <Button variant="secondary" onClick={onImport}>
             <Upload size={14} />
             Importera
@@ -103,6 +173,48 @@ export function Leads({
             Lägg till företag
           </Button>
         </div>
+      </div>
+      <div className="lead-group-strip" aria-label="Filtrera grupper">
+        <button
+          className={`lead-group-chip ${!group ? "active" : ""}`}
+          onClick={() => {
+            setGroup("");
+            setPage(0);
+          }}
+        >
+          <Folder size={14} />
+          Alla leads<span>{data.leads.length}</span>
+        </button>
+        {data.groups.map((g) => (
+          <button
+            key={g.id}
+            className={`lead-group-chip ${group === g.id ? "active" : ""}`}
+            onClick={() => {
+              setGroup(g.id);
+              setPage(0);
+            }}
+          >
+            <i style={{ backgroundColor: g.color }} />
+            {g.name}
+            <span>{data.leads.filter((l) => l.groupId === g.id).length}</span>
+          </button>
+        ))}
+        <button
+          className={`lead-group-chip ${group === "__none__" ? "active" : ""}`}
+          onClick={() => {
+            setGroup("__none__");
+            setPage(0);
+          }}
+        >
+          Utan grupp<span>{data.leads.filter((l) => !l.groupId).length}</span>
+        </button>
+        <button
+          className="lead-group-chip new-group"
+          onClick={() => setManagingGroups(true)}
+        >
+          <Plus size={14} />
+          Ny grupp
+        </button>
       </div>
       <div className="toolbar">
         <div className="search-field">
@@ -154,12 +266,27 @@ export function Leads({
             setPage(0);
           }}
         >
-          <option value="">Alla listor</option>
+          <option value="">Alla importer</option>
           {data.batches.map((b) => (
             <option value={b.id} key={b.id}>
-              {b.filename}
+              {b.filename} · {formatImportDate(b.importedAt)}
             </option>
           ))}
+        </select>
+        <select
+          aria-label="Filtrera källa"
+          value={source}
+          onChange={(e) => {
+            setSource(e.target.value);
+            setPage(0);
+          }}
+        >
+          <option value="">Alla källor</option>
+          {[...new Set(data.leads.map((l) => sourceName(data, l)))]
+            .sort((a, b) => a.localeCompare(b, "sv"))
+            .map((s) => (
+              <option key={s}>{s}</option>
+            ))}
         </select>
         <Button
           variant="ghost"
@@ -175,6 +302,132 @@ export function Leads({
           <Download size={16} />
         </Button>
       </div>
+      <div className="lead-date-toolbar">
+        <div className="flex">
+          <CalendarDays size={14} />
+          <span>Importdatum</span>
+        </div>
+        <label>
+          Från
+          <input
+            className="input"
+            aria-label="Importerad från datum"
+            type="date"
+            value={fromDate}
+            max={toDate || undefined}
+            onChange={(e) => {
+              setFromDate(e.target.value);
+              setPage(0);
+            }}
+          />
+        </label>
+        <label>
+          Till
+          <input
+            className="input"
+            aria-label="Importerad till datum"
+            type="date"
+            value={toDate}
+            min={fromDate || undefined}
+            onChange={(e) => {
+              setToDate(e.target.value);
+              setPage(0);
+            }}
+          />
+        </label>
+        <select
+          aria-label="Sortera leads"
+          value={`${sort}:${ascending ? "asc" : "desc"}`}
+          onChange={(e) => {
+            const [key, direction] = e.target.value.split(":");
+            setSort(key as keyof Lead);
+            setAscending(direction === "asc");
+            setPage(0);
+          }}
+        >
+          <option value="createdAt:desc">Senast tillagda</option>
+          <option value="createdAt:asc">Äldst tillagda</option>
+          <option value="importedAt:desc">Senast importerade</option>
+          <option value="importedAt:asc">Äldst importerade</option>
+          <option value="companyName:asc">Företag A–Ö</option>
+          <option value="companyName:desc">Företag Ö–A</option>
+          <option value="source:asc">Källa A–Ö</option>
+          <option value="source:desc">Källa Ö–A</option>
+          {!["createdAt", "importedAt", "companyName", "source"].includes(
+            sort,
+          ) && (
+            <option value={`${sort}:${ascending ? "asc" : "desc"}`}>
+              Vald tabellkolumn
+            </option>
+          )}
+        </select>
+        {(query ||
+          status ||
+          industry ||
+          batch ||
+          source ||
+          group ||
+          fromDate ||
+          toDate) && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setQuery("");
+              setStatus("");
+              setIndustry("");
+              setBatch("");
+              setSource("");
+              setGroup("");
+              setFromDate("");
+              setToDate("");
+              setPage(0);
+            }}
+          >
+            Rensa filter
+          </Button>
+        )}
+      </div>
+      {batch && (
+        <div className="import-list-summary">
+          <div>
+            <strong>
+              {data.batches.find((b) => b.id === batch)?.filename}
+            </strong>
+            <span>
+              Importerad{" "}
+              {formatImportDate(
+                data.batches.find((b) => b.id === batch)?.importedAt,
+                true,
+              )}{" "}
+              · {data.leads.filter((l) => l.importBatchId === batch).length}{" "}
+              leads i importen
+            </span>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="danger-text"
+            onClick={() => {
+              const count = data.leads.filter(
+                (l) => l.importBatchId === batch,
+              ).length;
+              if (
+                window.confirm(
+                  `Ta bort hela importen och dess ${count} leads, samtal, uppföljningar och XP? Detta omfattar alla leads i importen, även de som döljs av andra filter. Det går inte att ångra utan en säkerhetskopia.`,
+                ) &&
+                mutate((d) => removeImport(d, batch))
+              ) {
+                setBatch("");
+                setSelected([]);
+              }
+            }}
+          >
+            <Trash2 size={14} />
+            Ta bort import
+          </Button>
+        </div>
+      )}
       {selected.length > 0 && (
         <div className="bulk-bar">
           <strong className="text-xs">{selected.length} valda</strong>
@@ -209,6 +462,72 @@ export function Leads({
             }}
           >
             Ändra status
+          </Button>
+          <select
+            aria-label="Grupp för valda leads"
+            value={bulkGroup}
+            onChange={(e) => setBulkGroup(e.target.value)}
+          >
+            <option value="">Behåll grupp</option>
+            <option value="__none__">Utan grupp</option>
+            {data.groups.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+              </option>
+            ))}
+          </select>
+          <input
+            className="input bulk-source"
+            aria-label="Källa för valda leads"
+            list="bulk-source-options"
+            maxLength={100}
+            value={bulkSource}
+            onChange={(e) => setBulkSource(e.target.value)}
+            placeholder="Ny källa…"
+          />
+          <datalist id="bulk-source-options">
+            {[
+              ...new Set([
+                ...leadSources,
+                ...data.leads.map((l) => sourceName(data, l)),
+              ]),
+            ].map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!bulkGroup && !bulkSource.trim()}
+            onClick={() => {
+              if (
+                mutate((d) =>
+                  organizeLeads(d, selected, {
+                    ...(bulkGroup
+                      ? { groupId: bulkGroup === "__none__" ? "" : bulkGroup }
+                      : {}),
+                    ...(bulkSource.trim() ? { source: bulkSource.trim() } : {}),
+                  }),
+                )
+              ) {
+                setSelected([]);
+                setBulkGroup("");
+                setBulkSource("");
+              }
+            }}
+          >
+            Spara gruppering
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() =>
+              setSelected([
+                ...new Set([...selected, ...filtered.map((l) => l.id)]),
+              ])
+            }
+          >
+            Välj alla {filtered.length} träffar
           </Button>
           <Button
             variant="ghost"
@@ -249,6 +568,10 @@ export function Leads({
                 setStatus("");
                 setIndustry("");
                 setBatch("");
+                setSource("");
+                setGroup("");
+                setFromDate("");
+                setToDate("");
               }}
             >
               Rensa filter
@@ -288,6 +611,8 @@ export function Leads({
                       ["phone", "Telefon"],
                       ["website", "Hemsida"],
                       ["status", "Status"],
+                      ["source", "Källa"],
+                      ["importedAt", "Importerad"],
                       ["lastContactedAt", "Senaste kontakt"],
                       ["nextFollowUpAt", "Uppföljning"],
                     ] as const
@@ -350,7 +675,21 @@ export function Leads({
                           <small>
                             {l.industry || "Ingen bransch"} ·{" "}
                             {l.city || "Ingen ort"}
-                            {l.demo ? " · Demo" : ""}
+                            {l.groupId && (
+                              <span className="lead-group-label">
+                                <i
+                                  style={{
+                                    backgroundColor: data.groups.find(
+                                      (g) => g.id === l.groupId,
+                                    )?.color,
+                                  }}
+                                />
+                                {
+                                  data.groups.find((g) => g.id === l.groupId)
+                                    ?.name
+                                }
+                              </span>
+                            )}
                           </small>
                         </span>
                       </button>
@@ -382,6 +721,31 @@ export function Leads({
                     <td>
                       <StatusBadge status={l.status} />
                     </td>
+                    <td>
+                      <span className="lead-source-tag">
+                        {sourceName(data, l)}
+                      </span>
+                    </td>
+                    <td className="lead-import-date">
+                      {importDate(data, l) ? (
+                        <>
+                          <span>{formatImportDate(importDate(data, l))}</span>
+                          <small
+                            title={
+                              data.batches.find((b) => b.id === l.importBatchId)
+                                ?.filename
+                            }
+                          >
+                            {
+                              data.batches.find((b) => b.id === l.importBatchId)
+                                ?.filename
+                            }
+                          </small>
+                        </>
+                      ) : (
+                        <span className="muted">Manuellt tillagd</span>
+                      )}
+                    </td>
                     <td className="muted">{formatDate(l.lastContactedAt)}</td>
                     <td
                       className={
@@ -402,6 +766,22 @@ export function Leads({
                         onClick={() => onCall(l.id)}
                       >
                         <Phone size={14} />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Ta bort ${l.companyName}`}
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `Ta bort ”${l.companyName}” och dess samtal, uppföljningar och XP? Det går inte att ångra.`,
+                            ) &&
+                            mutate((d) => deleteLeads(d, [l.id]))
+                          )
+                            setSelected(selected.filter((id) => id !== l.id));
+                        }}
+                      >
+                        <Trash2 size={14} />
                       </Button>
                     </td>
                   </tr>
@@ -440,6 +820,9 @@ export function Leads({
             </div>
           </div>
         </>
+      )}
+      {managingGroups && (
+        <LeadGroups onClose={() => setManagingGroups(false)} />
       )}
     </>
   );

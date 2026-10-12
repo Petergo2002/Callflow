@@ -9,6 +9,9 @@ import {
   leadInput,
   safeWebsite,
   statuses,
+  leadSources,
+  importDate,
+  formatImportDate,
 } from "@/lib/model";
 import { useStore } from "@/lib/store";
 import { deleteLeads, updateLead } from "@/lib/engine";
@@ -106,7 +109,11 @@ export function LeadDialog({
             </a>
           )}
           <span>{calls.length} samtalsförsök</span>
-          {lead.demo && <span>Demoföretag</span>}
+          {importDate(data, lead) && (
+            <span>
+              Importerad {formatImportDate(importDate(data, lead), true)}
+            </span>
+          )}
         </div>
       )}
       <form onSubmit={save}>
@@ -139,6 +146,47 @@ export function LeadDialog({
               />
             </label>
           ))}
+          <label className="form-field">
+            Källa
+            <input
+              className="input"
+              list="lead-source-options"
+              maxLength={100}
+              placeholder="Google Maps, Instagram…"
+              value={form.source || ""}
+              onChange={(e) => {
+                setForm({ ...form, source: e.target.value });
+                setSaved(false);
+              }}
+            />
+            <datalist id="lead-source-options">
+              {[
+                ...new Set([
+                  ...leadSources,
+                  ...data.leads.map((l) => l.source).filter(Boolean),
+                ]),
+              ].map((s) => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
+          </label>
+          <label className="form-field">
+            Grupp
+            <select
+              value={form.groupId || ""}
+              onChange={(e) => {
+                setForm({ ...form, groupId: e.target.value });
+                setSaved(false);
+              }}
+            >
+              <option value="">Utan grupp</option>
+              {data.groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="form-field full">
             Status
             <select

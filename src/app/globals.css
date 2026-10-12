@@ -2023,3 +2023,197 @@ input[type="checkbox"] {
     margin: 14px 20px 0;
   }
 }
+
+/* Lead sources, import dates and personal groups. */
+.lead-group-strip {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 20px;
+}
+.lead-group-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 100%;
+}
+.lead-group-chip.active {
+  color: var(--green);
+  border-color: var(--green);
+  background: var(--soft);
+}
+.lead-group-chip span {
+  font-size: 10px;
+  opacity: 0.75;
+  padding: 2px 5px;
+  background: var(--soft);
+  border-radius: 4px;
+}
+.lead-group-chip i,
+.lead-group-label i {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+.lead-group-chip.new-group {
+  border-style: dashed;
+}
+.lead-group-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  font-size: 10px;
+}
+.lead-source-tag {
+  font-size: 11px;
+  background: var(--soft);
+  border: 1px solid var(--line);
+  padding: 4px 7px;
+  border-radius: 5px;
+}
+.lead-import-date small {
+  display: block;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.lead-date-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0 0 18px;
+}
+.lead-date-toolbar label {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+}
+.lead-date-toolbar input {
+  width: 145px;
+  padding: 7px;
+}
+.lead-date-toolbar select {
+  width: auto;
+  max-width: 190px;
+  padding: 7px 10px;
+  margin-left: auto;
+}
+.import-list-summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 15px;
+  margin-bottom: 15px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+  font-size: 12px;
+}
+.import-list-summary span {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.bulk-bar {
+  flex-wrap: wrap;
+}
+.bulk-bar .bulk-source {
+  width: 150px;
+}
+.import-organization {
+  padding: 18px;
+  background: var(--soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 24px;
+}
+.group-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  padding: 18px;
+  background: var(--soft);
+  border-radius: 8px;
+}
+.group-color-picker {
+  display: flex;
+  gap: 10px;
+  border: 0;
+  padding: 0;
+}
+.group-color-picker legend {
+  margin-bottom: 8px;
+  font-size: 11px;
+}
+.group-color-picker label {
+  display: grid;
+  place-items: center;
+  height: 27px;
+  width: 27px;
+  border-radius: 50%;
+  color: white;
+  position: relative;
+  cursor: pointer;
+}
+.group-color-picker input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+.group-color-picker label:focus-within {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+.group-manager-list {
+  margin-top: 18px;
+}
+.group-manager-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  padding: 13px 0;
+}
+.group-manager-row .input {
+  flex: 1;
+  min-width: 140px;
+}
+.group-manager-row select {
+  width: 80px;
+}
+.group-count {
+  font-size: 10px;
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .lead-date-toolbar select {
+    margin-left: 0;
+  }
+  .lead-group-chip {
+    font-size: 11px;
+  }
+  .import-list-summary strong {
+    overflow-wrap: anywhere;
+  }
+}

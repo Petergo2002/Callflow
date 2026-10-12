@@ -9,6 +9,7 @@ import {
   normalizeDomain,
   normalizeName,
   normalizePhone,
+  groupColors,
 } from "./model";
 export const importFields = {
   companyName: "Företagsnamn",
@@ -18,6 +19,7 @@ export const importFields = {
   city: "Ort",
   contactName: "Kontaktperson",
   notes: "Anteckningar",
+  source: "Källa",
 } as const;
 export type ImportField = keyof typeof importFields;
 export type Mapping = Record<ImportField, number>;
@@ -52,6 +54,7 @@ const aliases: Record<ImportField, string[]> = {
   city: ["ort", "city", "stad"],
   contactName: ["kontaktperson", "contact", "contactname", "kontakt"],
   notes: ["notes", "anteckningar", "notering", "kommentar"],
+  source: ["källa", "kalla", "source", "leadsource"],
 };
 export function autoMapping(headers: string[]): Mapping {
   return Object.fromEntries(
@@ -141,14 +144,52 @@ export interface ImportSummary {
   reasons: string[];
   batchId: string;
 }
+export interface ImportOptions {
+  source?: string;
+  groupId?: string;
+  groupName?: string;
+  groupColor?: string;
+}
 function* importRows(
   data: Data,
   rows: PreparedRow[],
   mode: DuplicateMode,
   filename: string,
+  options: ImportOptions = {},
 ): Generator<number, { data: Data; summary: ImportSummary }> {
   const batchId = id(),
     importedAt = new Date().toISOString();
+  if (options.source && options.source.trim().length > 100)
+    throw new Error("Källnamnet får vara högst 100 tecken.");
+  if (
+    options.groupColor &&
+    !(groupColors as readonly string[]).includes(options.groupColor)
+  )
+    throw new Error("Välj en giltig gruppfärg.");
+  let groups = data.groups;
+  let groupId = options.groupId;
+  if (options.groupName?.trim()) {
+    const existing = groups.find(
+      (g) =>
+        g.name.toLocaleLowerCase("sv") ===
+        options.groupName!.trim().toLocaleLowerCase("sv"),
+    );
+    groupId = existing?.id ?? id();
+    if (!existing)
+      groups = [
+        ...groups,
+        {
+          id: groupId,
+          name: options.groupName.trim(),
+          color: options.groupColor || "#16724c",
+          createdAt: importedAt,
+        },
+      ];
+  }
+  if (groupId && !groups.some((g) => g.id === groupId))
+    throw new Error("Välj en befintlig grupp.");
+  if (options.groupName && options.groupName.trim().length > 80)
+    throw new Error("Gruppnamnet får vara högst 80 tecken.");
   const leads = [...data.leads];
   const positions = new Map(leads.map((l, i) => [l.id, i]));
   const importedRowIds = new Map<string, string>();
@@ -181,17 +222,32 @@ function* importRows(
       const merged = { ...old };
       for (const field of Object.keys(importFields) as ImportField[])
         if (row.input[field]) merged[field] = row.input[field];
+      if (options.source && !row.input.source)
+        merged.source = options.source.trim();
+      if (groupId) merged.groupId = groupId;
       leads[pos] = makeLead(merged, {
         ...merged,
         updatedAt: importedAt,
         importBatchId: batchId,
+        importedAt,
+        ...(options.source && !row.input.source
+          ? { source: options.source.trim() }
+          : {}),
+        ...(groupId ? { groupId } : {}),
         demo: false,
       });
       summary.updated++;
       importedRowIds.set(`row:${row.row}`, old.id);
       continue;
     }
-    const lead = makeLead(row.input, { importBatchId: batchId });
+    const lead = makeLead(
+      {
+        ...row.input,
+        source: row.input.source || options.source?.trim(),
+        groupId,
+      },
+      { importBatchId: batchId, importedAt },
+    );
     positions.set(lead.id, leads.length);
     importedRowIds.set(`row:${row.row}`, lead.id);
     leads.push(lead);
@@ -201,11 +257,14 @@ function* importRows(
     data: {
       ...data,
       leads,
+      groups,
       batches: [
         ...data.batches,
         {
           id: batchId,
           filename,
+          source: options.source?.trim(),
+          groupId,
           importedAt,
           importedCount: summary.imported,
           duplicateCount: summary.skipped,
@@ -221,8 +280,9 @@ export function applyImport(
   rows: PreparedRow[],
   mode: DuplicateMode,
   filename: string,
+  options: ImportOptions = {},
 ) {
-  const iterator = importRows(data, rows, mode, filename);
+  const iterator = importRows(data, rows, mode, filename, options);
   let step = iterator.next();
   while (!step.done) step = iterator.next();
   return step.value;
@@ -233,8 +293,9 @@ export async function applyImportAsync(
   mode: DuplicateMode,
   filename: string,
   onProgress: (processed: number, total: number) => void,
+  options: ImportOptions = {},
 ) {
-  const iterator = importRows(data, rows, mode, filename);
+  const iterator = importRows(data, rows, mode, filename, options);
   let step = iterator.next();
   while (!step.done) {
     onProgress(step.value, rows.length);
@@ -262,8 +323,17 @@ export function exportCSV(data: Data) {
     "Nästa uppföljning": l.nextFollowUpAt ?? "",
     "Antal försök": attempts.get(l.id) ?? 0,
     Källa:
-      data.batches.find((b) => b.id === l.importBatchId)?.filename ??
-      "Manuellt",
+      l.source ||
+      data.batches.find((b) => b.id === l.importBatchId)?.source ||
+      (l.importBatchId ? "Ej angiven" : "Manuellt"),
+    Grupp: data.groups.find((g) => g.id === l.groupId)?.name || "",
+    Importfil:
+      data.batches.find((b) => b.id === l.importBatchId)?.filename || "",
+    Importdatum:
+      l.importedAt ||
+      data.batches.find((b) => b.id === l.importBatchId)?.importedAt ||
+      "",
+    Skapad: l.createdAt,
   }));
   return (
     "\ufeff" +

@@ -20,6 +20,7 @@ import {
   applyImportAsync,
   download,
 } from "@/lib/import";
+import { leadSources, formatImportDate } from "@/lib/model";
 import { useStore } from "@/lib/store";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
@@ -33,6 +34,9 @@ export function ImportWizard({
 }) {
   const { data, mutate } = useStore();
   const [step, setStep] = useState(0);
+  const [source, setSource] = useState("");
+  const [groupId, setGroupId] = useState("");
+  const [groupName, setGroupName] = useState("");
   const [file, setFile] = useState<File>();
   const [sheets, setSheets] = useState<Sheet[]>([]);
   const [sheetIndex, setSheetIndex] = useState(-1);
@@ -104,6 +108,10 @@ export function ImportWizard({
   }
   async function commit() {
     if (committing.current || !file || !sheet || !data) return;
+    if (groupId === "__new__" && !groupName.trim()) {
+      setError("Ange ett namn på den nya gruppen.");
+      return;
+    }
     committing.current = true;
     setLoading(true);
     setError("");
@@ -118,6 +126,11 @@ export function ImportWizard({
         file.name,
         (processed, total) =>
           setProgress(Math.round((processed / Math.max(total, 1)) * 95)),
+        {
+          source,
+          groupId: groupId === "__new__" ? undefined : groupId,
+          groupName: groupId === "__new__" ? groupName : undefined,
+        },
       );
     } catch (e) {
       setError((e as Error).message);
@@ -363,6 +376,63 @@ export function ImportWizard({
       )}
       {step === 3 && (
         <>
+          <section className="import-organization">
+            <h3>Ge listan ett sammanhang</h3>
+            <p className="footnote">
+              Importdatum sparas automatiskt. Välj källa och grupp för att hitta
+              rätt företag senare.
+            </p>
+            <div className="form-grid">
+              <label className="form-field">
+                Källa för importen
+                <input
+                  className="input"
+                  list="import-source-options"
+                  maxLength={100}
+                  value={source}
+                  onChange={(e) => setSource(e.target.value)}
+                  placeholder="Google Maps, Instagram eller egen källa"
+                />
+                <datalist id="import-source-options">
+                  {leadSources.map((s) => (
+                    <option key={s} value={s} />
+                  ))}
+                </datalist>
+              </label>
+              <label className="form-field">
+                Grupp för importen
+                <select
+                  value={groupId}
+                  onChange={(e) => setGroupId(e.target.value)}
+                >
+                  <option value="">Utan grupp</option>
+                  {data?.groups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
+                  ))}
+                  <option value="__new__">＋ Skapa en ny grupp</option>
+                </select>
+              </label>
+              {groupId === "__new__" && (
+                <label className="form-field full">
+                  Namn på ny grupp
+                  <input
+                    className="input"
+                    value={groupName}
+                    required
+                    maxLength={80}
+                    onChange={(e) => setGroupName(e.target.value)}
+                    placeholder="Till exempel Instagram · Stockholm"
+                  />
+                </label>
+              )}
+            </div>
+            <p className="footnote">
+              En mappad Källa-kolumn i filen används för respektive rad. Valet
+              ovan används där kolumnen är tom.
+            </p>
+          </section>
           <h3>
             {duplicates
               ? `${duplicates} möjliga dubbletter hittades`
@@ -442,6 +512,14 @@ export function ImportWizard({
               rader kunde inte importeras.
             </p>
           </div>
+          <p className="footnote">
+            Importerad{" "}
+            {formatImportDate(
+              data?.batches.find((b) => b.id === summary.batchId)?.importedAt,
+              true,
+            )}
+            {source ? ` · ${source}` : ""}
+          </p>
           {summary.reasons.length > 0 && (
             <>
               <div className="flex between mb-3">
