@@ -1414,6 +1414,45 @@ input[type="checkbox"] {
   letter-spacing: -0.8px;
   display: block;
 }
+.btn-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 11px;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.btn-copy:hover {
+  background: var(--soft);
+  color: var(--ink);
+  border-color: #8cab9a;
+}
+.copied-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--green);
+  font-weight: 500;
+}
+.copy-icon {
+  display: inline-flex;
+  align-items: center;
+}
+.allabolag-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: color 0.15s;
+}
+.allabolag-badge:hover {
+  color: var(--green);
+}
 .phone-caption {
   display: block;
   font-size: 10px;

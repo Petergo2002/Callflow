@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Copy,
   ExternalLink,
   Flame,
   Headphones,
@@ -18,6 +19,7 @@ import {
   Phone,
   PhoneMissed,
   Play,
+  RotateCcw,
   Search,
   Sprout,
   Target,
@@ -35,6 +37,7 @@ import {
   fromStockholm,
   id,
   metrics,
+  rankedLeads,
   safeWebsite,
   sessionSeconds,
   shiftDate,
@@ -96,6 +99,9 @@ export function Focus({
   const [busy, setBusy] = useState(false);
   const locked = useRef(false);
   const [undo, setUndo] = useState<UndoCall>();
+  const [lastFeedback, setLastFeedback] = useState<{ message: string; icon?: string }>();
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [summary, setSummary] = useState<CallingSession>();
   const [milestone, setMilestone] = useState<number>();
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -110,8 +116,29 @@ export function Focus({
       if (undoTimer.current) clearTimeout(undoTimer.current);
       if (lockTimer.current) clearTimeout(lockTimer.current);
       if (milestoneTimer.current) clearTimeout(milestoneTimer.current);
+      if (copyTimer.current) clearTimeout(copyTimer.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (active?.status !== "active") return;
+    function handleBeforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [active?.status]);
+
+  function copyPhone(phoneToCopy: string, leadId: string) {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(phoneToCopy);
+      setCopiedId(leadId);
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopiedId(null), 2000);
+    }
+  }
+
   function register(outcome: Status, followUpAt?: string, meetingAt?: string) {
     if (
       !lead ||
@@ -140,6 +167,15 @@ export function Focus({
     });
     if (ok && inverse) {
       setUndo(inverse);
+      if (outcome === "Möte bokat") {
+        setLastFeedback({ message: "Möte bokat! +30 XP", icon: "🎉" });
+      } else if (outcome === "Kund") {
+        setLastFeedback({ message: "Ny kund! +100 XP", icon: "🏆" });
+      } else if (outcome === "Återkom senare") {
+        setLastFeedback({ message: "Uppföljning schemalagd", icon: "⏰" });
+      } else {
+        setLastFeedback({ message: "Samtalet sparat (+5 XP)", icon: "✓" });
+      }
       if (undoTimer.current) clearTimeout(undoTimer.current);
       undoTimer.current = setTimeout(() => setUndo(undefined), 10000);
       setPanel(undefined);
@@ -499,13 +535,42 @@ export function Focus({
                         Hemsida
                       </a>
                     )}
+                    <a
+                      href={`https://www.allabolag.se/bransch-sok?q=${encodeURIComponent(lead.companyName)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="allabolag-badge"
+                      title="Sök bolaget på Allabolag"
+                    >
+                      <Search size={13} />
+                      Allabolag
+                    </a>
                   </div>
                   <div className="phone-block">
                     <div>
                       {lead.phone ? (
-                        <a className="phone-number" href={`tel:${lead.phone}`}>
-                          {lead.phone}
-                        </a>
+                        <div className="flex items-center gap-3">
+                          <a className="phone-number" href={`tel:${lead.phone}`}>
+                            {lead.phone}
+                          </a>
+                          <button
+                            type="button"
+                            className="btn-copy"
+                            onClick={() => copyPhone(lead.phone, lead.id)}
+                            title="Kopiera telefonnummer"
+                            aria-label="Kopiera telefonnummer"
+                          >
+                            {copiedId === lead.id ? (
+                              <span className="copied-pill">
+                                <Check size={12} /> Kopierat!
+                              </span>
+                            ) : (
+                              <span className="copy-icon">
+                                <Copy size={13} /> Kopiera
+                              </span>
+                            )}
+                          </button>
+                        </div>
                       ) : (
                         <span className="phone-number muted">
                           Telefon saknas
@@ -660,12 +725,19 @@ export function Focus({
                       · svensk tid
                       <input
                         type="datetime-local"
+                        autoFocus
                         aria-label={
                           panel === "meeting" ? "Mötestid" : "Uppföljningstid"
                         }
                         value={time}
                         min={stockholmInput(new Date().toISOString())}
                         onChange={(e) => setTime(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            scheduled();
+                          }
+                        }}
                       />
                     </label>
                     <Button
@@ -715,7 +787,7 @@ export function Focus({
                 title="Du har gått igenom din ringlista."
                 description="Framtida uppföljningar väntar till avtalad tid. Avsluta passet för att se dina resultat, eller återgå till ett tidigare företag."
               />
-              <div className="flex justify-center pb-8">
+              <div className="flex justify-center pb-8 gap-3">
                 <Button
                   variant="secondary"
                   disabled={!active.visited.length}
@@ -723,6 +795,26 @@ export function Focus({
                 >
                   <ArrowLeft size={14} />
                   Föregående företag
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    mutate((d) => ({
+                      ...d,
+                      sessions: d.sessions.map((s) =>
+                        s.id === active.id
+                          ? {
+                              ...s,
+                              visited: [],
+                              currentLeadId: rankedLeads(d, { ...s, visited: [] })[0]?.id,
+                            }
+                          : s,
+                      ),
+                    }));
+                  }}
+                >
+                  <RotateCcw size={14} />
+                  Börja om listan
                 </Button>
                 <Button onClick={finish}>
                   Se sammanfattning
@@ -743,8 +835,12 @@ export function Focus({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
           >
-            <Check size={16} />
-            Samtalet sparat
+            {lastFeedback?.icon ? (
+              <span className="text-base mr-1">{lastFeedback.icon}</span>
+            ) : (
+              <Check size={16} />
+            )}
+            <span>{lastFeedback?.message ?? "Samtalet sparat"}</span>
             <button
               onClick={() => {
                 if (mutate((d) => undoCall(d, undo))) {
