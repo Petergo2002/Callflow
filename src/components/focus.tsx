@@ -47,6 +47,8 @@ import {
   sessionIncludesLead,
   sourceName,
   stockholmInput,
+  contactMemory,
+  contactedToday,
 } from "@/lib/model";
 import {
   changeSession,
@@ -58,6 +60,7 @@ import {
   undoCall,
   UndoCall,
 } from "@/lib/engine";
+import { attemptLabel, nextStepText } from "@/lib/lead-intelligence";
 import { useStore } from "@/lib/store";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
@@ -96,7 +99,9 @@ const actions: {
 export function Focus({
   onSearch,
   onImport,
+  onOpenLead,
 }: {
+  onOpenLead: (lead: import("@/lib/model").Lead) => void;
   onSearch: () => void;
   onImport: (groupId?: string) => void;
 }) {
@@ -202,6 +207,7 @@ export function Focus({
     const eventId = id();
     let inverse: UndoCall | undefined;
     let earned = 0;
+    let retryAt: string | undefined;
     const before = metrics(data, dateKey(), dateKey()).attempts;
     const ok = mutate((d) => {
       const r = logCall(d, {
@@ -213,6 +219,7 @@ export function Focus({
         meetingAt,
       });
       inverse = r.undo;
+      retryAt = r.data.leads.find((l) => l.id === lead.id)?.nextRetryAt;
       earned =
         r.data.xp.reduce((sum, e) => sum + e.points, 0) -
         d.xp.reduce((sum, e) => sum + e.points, 0);
@@ -229,6 +236,11 @@ export function Focus({
         });
       } else if (outcome === "Återkom senare") {
         setLastFeedback({ message: "Uppföljning schemalagd", icon: "⏰" });
+      } else if (outcome === "Inget svar" && retryAt) {
+        setLastFeedback({
+          message: `Inget svar. Nästa försök ${formatDate(retryAt, true)}`,
+          icon: "⏰",
+        });
       } else {
         setLastFeedback({
           message: `Samtalet sparat (+${earned} XP)`,
@@ -434,11 +446,12 @@ export function Focus({
         <div className="session-controls">
           <Button
             variant="ghost"
-            size="icon"
-            aria-label="Sök företag"
+            size="sm"
+            aria-label="Sök nummer eller företag"
             onClick={onSearch}
           >
             <Search size={16} />
+            Sök nummer
           </Button>
           <Button
             variant="ghost"
@@ -740,6 +753,16 @@ export function Focus({
                       <span className="muted text-xs">Komplettera i Leads</span>
                     )}
                   </div>
+                  <div className="flex between flex-wrap mt-3">
+                    <span className="footnote">{nextStepText(lead)}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onOpenLead(lead)}
+                    >
+                      Planera nästa steg
+                    </Button>
+                  </div>
                   <div className="focus-notes">
                     <div className="focus-notes-head">
                       <label htmlFor="quickNotes">Dina anteckningar</label>
@@ -772,10 +795,7 @@ export function Focus({
                   </div>
                   <div className="focus-history">
                     <Clock3 size={12} />
-                    <span>
-                      {data.calls.filter((c) => c.leadId === lead.id).length}{" "}
-                      tidigare försök
-                    </span>
+                    <span>{attemptLabel(data, lead.id)}</span>
                     {data.calls
                       .filter((c) => c.leadId === lead.id)
                       .slice(-2)
@@ -785,6 +805,18 @@ export function Focus({
                         </span>
                       ))}
                   </div>
+                  {contactedToday(
+                    lead,
+                    contactMemory(data)(lead),
+                    new Date(now),
+                  ) && (
+                    <div className="warning" role="status">
+                      Det här företaget eller telefonnumret har redan ringts
+                      idag ({formatDate(contactMemory(data)(lead), true)}). Du
+                      har öppnat det manuellt. Kontrollera historiken innan du
+                      ringer igen.
+                    </div>
+                  )}
                   {data.calls.filter((c) => c.leadId === lead.id).length >
                     0 && (
                     <details className="mt-3 text-xs muted">
@@ -938,8 +970,8 @@ export function Focus({
                 }
                 description={
                   activeQueue!.nextAt
-                    ? `${activeQueue!.future.length} leads väntar på sin återringningstid. Nästa: ${formatDate(activeQueue!.nextAt, true)}. Kön uppdateras automatiskt när det är dags.`
-                    : `${activeQueue!.missingPhone ? `${activeQueue!.missingPhone} leads saknar telefonnummer. ` : ""}Ändra urvalet för att ringa fler leads, eller avsluta och se dina resultat.`
+                    ? `${activeQueue!.future.length} leads väntar på nästa kontakttid. Nästa: ${formatDate(activeQueue!.nextAt, true)}. Kön uppdateras automatiskt när det är dags.`
+                    : `${activeQueue!.contactedToday ? `${activeQueue!.contactedToday} leads eller nummer har redan ringts idag och väntar till nästa dag. ` : ""}${activeQueue!.missingPhone ? `${activeQueue!.missingPhone} leads saknar telefonnummer. ` : ""}Ändra urvalet för att ringa fler leads, eller avsluta och se dina resultat.`
                 }
               />
               <div className="focus-empty-actions">
@@ -1002,6 +1034,20 @@ export function Focus({
               <Check size={16} />
             )}
             <span>{lastFeedback?.message ?? "Samtalet sparat"}</span>
+            {data.calls.find((c) => c.id === undo.callId)?.outcome ===
+              "Intresserad" && (
+              <button
+                onClick={() => {
+                  const previous = data.leads.find(
+                    (l) => l.id === undo.previousLead.id,
+                  );
+                  if (previous) onOpenLead(previous);
+                }}
+              >
+                Planera nästa steg
+              </button>
+            )}
+
             <button
               onClick={() => {
                 if (mutate((d) => undoCall(d, undo))) {

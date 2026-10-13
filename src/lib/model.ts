@@ -49,6 +49,17 @@ export const leadInput = z.object({
   groupId: z.string().max(100).optional(),
 });
 export type LeadInput = z.infer<typeof leadInput>;
+export const nextStepSchema = z.object({
+  kind: z.enum(["call", "offer", "wait"]),
+  dueAt: z.string().datetime(),
+  note: z.string().trim().max(2000),
+});
+export type NextStep = z.infer<typeof nextStepSchema>;
+export const nextStepLabels = {
+  call: "Ring",
+  offer: "Skicka offert",
+  wait: "Invänta svar",
+};
 export interface Lead extends LeadInput {
   id: string;
   normalizedPhone: string;
@@ -57,6 +68,12 @@ export interface Lead extends LeadInput {
   updatedAt: string;
   lastContactedAt?: string;
   nextFollowUpAt?: string;
+  nextRetryAt?: string;
+  nextStep?: NextStep;
+  alternatePhones?: string[];
+  alternateWebsites?: string[];
+  alternateNames?: string[];
+  mergedFrom?: string[];
   importBatchId?: string;
   importedAt?: string;
   demo?: boolean;
@@ -69,6 +86,7 @@ export interface CallLog {
   notes: string;
   createdAt: string;
   meetingAt?: string;
+  direction?: "incoming" | "outgoing";
   demo?: boolean;
 }
 export interface FollowUp {
@@ -79,6 +97,7 @@ export interface FollowUp {
   completedAt?: string;
   notes: string;
   sourceCallId?: string;
+  resolution?: "done" | "replaced" | "closed";
 }
 export interface CallingSession {
   id: string;
@@ -193,6 +212,15 @@ export function normalizePhone(v: string) {
     : n.startsWith("46")
       ? "+" + n
       : n;
+}
+export function leadPhones(lead: Lead) {
+  return [
+    ...new Set(
+      [lead.phone, ...(lead.alternatePhones || [])]
+        .map(normalizePhone)
+        .filter(Boolean),
+    ),
+  ];
 }
 export function safeWebsite(v: string) {
   try {
@@ -328,6 +356,43 @@ export function sessionScopeValid(data: Data, session: CallingSession) {
       data.batches.some((b) => b.id === session.selectedBatch))
   );
 }
+// One contact memory across imports, groups and calling sessions.
+export function contactMemory(data: Data) {
+  const latest = new Map<string, string>();
+  const leads = new Map(data.leads.map((l) => [l.id, l]));
+  const remember = (lead: Lead, at: string) => {
+    for (const key of [lead.id, ...leadPhones(lead)]) {
+      if (!latest.has(key) || at > latest.get(key)!) latest.set(key, at);
+    }
+  };
+  for (const lead of data.leads)
+    if (lead.lastContactedAt) remember(lead, lead.lastContactedAt);
+  for (const call of data.calls) {
+    const lead = leads.get(call.leadId);
+    if (lead) remember(lead, call.createdAt);
+  }
+  return (lead: Lead) =>
+    [latest.get(lead.id), ...leadPhones(lead).map((phone) => latest.get(phone))]
+      .filter((at): at is string => !!at)
+      .sort()
+      .at(-1);
+}
+export function contactedToday(
+  lead: Lead,
+  lastContact: string | undefined,
+  now: Date,
+) {
+  if (!lastContact || dateKey(lastContact) !== dateKey(now)) return false;
+  // An explicit promise to call again later today takes precedence once due.
+  return !(
+    lead.nextFollowUpAt &&
+    new Date(lead.nextFollowUpAt) <= now &&
+    new Date(lastContact) < new Date(lead.nextFollowUpAt)
+  );
+}
+export function retryWaiting(lead: Lead, now: Date) {
+  return !!lead.nextRetryAt && new Date(lead.nextRetryAt) > now;
+}
 export function rankedLeads(
   data: Data,
   session: CallingSession,
@@ -336,13 +401,25 @@ export function rankedLeads(
   if (!sessionScopeValid(data, session)) return [];
   const today = dateKey(now);
   const visited = new Set(session.visited);
+  const lastContact = contactMemory(data);
+  const visitedPhones = new Set(
+    data.leads
+      .filter((l) => visited.has(l.id))
+      .flatMap(leadPhones)
+      .filter(Boolean),
+  );
+  const queuedPhones = new Set<string>();
   return data.leads
     .filter(
       (l) =>
         session.includedStatuses.includes(l.status) &&
+        (!l.nextStep || l.nextStep.kind === "call") &&
         sessionIncludesLead(data, l, session) &&
         (!session.requirePhone || !!l.phone.trim()) &&
         !visited.has(l.id) &&
+        !leadPhones(l).some((p) => visitedPhones.has(p)) &&
+        !contactedToday(l, lastContact(l), now) &&
+        !retryWaiting(l, now) &&
         (!l.nextFollowUpAt || new Date(l.nextFollowUpAt) <= now),
     )
     .sort((a, b) => {
@@ -362,6 +439,12 @@ export function rankedLeads(
           b.nextFollowUpAt || b.lastContactedAt || b.createdAt,
         )
       );
+    })
+    .filter((lead) => {
+      const phones = leadPhones(lead);
+      if (phones.some((p) => queuedPhones.has(p))) return false;
+      phones.forEach((p) => queuedPhones.add(p));
+      return true;
     });
 }
 export function streak(data: Data, today = dateKey()) {

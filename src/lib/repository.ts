@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { Data, leadInput, statuses, groupColors } from "./model";
+import {
+  Data,
+  leadInput,
+  statuses,
+  groupColors,
+  nextStepSchema,
+} from "./model";
 
 const iso = z.string().datetime();
 const dataSchema = z.object({
@@ -13,6 +19,12 @@ const dataSchema = z.object({
       updatedAt: iso,
       lastContactedAt: iso.optional(),
       nextFollowUpAt: iso.optional(),
+      nextRetryAt: iso.optional(),
+      nextStep: nextStepSchema.optional(),
+      alternatePhones: z.array(z.string().max(100)).optional(),
+      alternateWebsites: z.array(z.string().max(1000)).optional(),
+      alternateNames: z.array(z.string().max(300)).optional(),
+      mergedFrom: z.array(z.string()).optional(),
       importBatchId: z.string().optional(),
       importedAt: iso.optional(),
       demo: z.boolean().optional(),
@@ -27,6 +39,7 @@ const dataSchema = z.object({
       notes: z.string(),
       createdAt: iso,
       meetingAt: iso.optional(),
+      direction: z.enum(["incoming", "outgoing"]).optional(),
       demo: z.boolean().optional(),
     }),
   ),
@@ -39,6 +52,7 @@ const dataSchema = z.object({
       completedAt: iso.optional(),
       notes: z.string(),
       sourceCallId: z.string().optional(),
+      resolution: z.enum(["done", "replaced", "closed"]).optional(),
     }),
   ),
   sessions: z.array(

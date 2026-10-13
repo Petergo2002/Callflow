@@ -1,4 +1,5 @@
 import Papa from "papaparse";
+import { nextStepText } from "./lead-intelligence";
 import {
   Data,
   Lead,
@@ -92,11 +93,20 @@ export function prepareImport(
     phone: string;
     website: string;
     companyName: string;
+    alternatePhones?: string[];
+    alternateWebsites?: string[];
+    alternateNames?: string[];
   }) {
     for (const [map, key] of [
-      [phones, normalizePhone(lead.phone)],
-      [domains, normalizeDomain(lead.website)],
-      [names, normalizeName(lead.companyName)],
+      ...[lead.phone, ...(lead.alternatePhones || [])].map(
+        (p) => [phones, normalizePhone(p)] as const,
+      ),
+      ...[lead.website, ...(lead.alternateWebsites || [])].map(
+        (w) => [domains, normalizeDomain(w)] as const,
+      ),
+      ...[lead.companyName, ...(lead.alternateNames || [])].map(
+        (name) => [names, normalizeName(name)] as const,
+      ),
     ] as const)
       if (key) {
         const values = map.get(key) ?? new Set<string>();
@@ -132,7 +142,8 @@ export function prepareImport(
     const duplicateId = [...matches][0];
     const ambiguous = matches.size > 1 || (!strong.size && matches.size > 0);
     const result = { row: i + 2, input: parsed.data, duplicateId, ambiguous };
-    index({ ...input, id: `row:${i + 2}` });
+    // Keep later rows pointing to the canonical company, including skipped rows.
+    if (!ambiguous) index({ ...input, id: duplicateId || `row:${i + 2}` });
     return result;
   });
 }
@@ -221,7 +232,23 @@ function* importRows(
       const old = leads[pos];
       const merged = { ...old };
       for (const field of Object.keys(importFields) as ImportField[])
-        if (row.input[field]) merged[field] = row.input[field];
+        if (field !== "notes" && row.input[field])
+          merged[field] = row.input[field];
+      const incomingNotes = row.input.notes.trim();
+      if (
+        incomingNotes &&
+        !`\n\n${old.notes.trim()}\n\n`.includes(`\n\n${incomingNotes}\n\n`)
+      ) {
+        const notes = [old.notes, incomingNotes].filter(Boolean).join("\n\n");
+        if (notes.length > 20000) {
+          summary.skipped++;
+          summary.reasons.push(
+            `Rad ${row.row}: anteckningarna blir för långa – befintligt företag bevarat`,
+          );
+          continue;
+        }
+        merged.notes = notes;
+      }
       if (options.source && !row.input.source)
         merged.source = options.source.trim();
       if (groupId) merged.groupId = groupId;
@@ -322,6 +349,10 @@ export function exportCSV(data: Data) {
     "Senaste kontakt": l.lastContactedAt ?? "",
     "Nästa uppföljning": l.nextFollowUpAt ?? "",
     "Antal försök": attempts.get(l.id) ?? 0,
+    "Nästa försök": l.nextRetryAt ?? "",
+    "Nästa steg": nextStepText(l),
+    "Alternativa telefonnummer": (l.alternatePhones || []).join(" | "),
+    "Alternativa hemsidor": (l.alternateWebsites || []).join(" | "),
     Källa:
       l.source ||
       data.batches.find((b) => b.id === l.importBatchId)?.source ||

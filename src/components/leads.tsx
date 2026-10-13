@@ -39,9 +39,12 @@ import {
   dateKey,
 } from "@/lib/model";
 import { removeImport } from "@/lib/organization";
+import { DuplicateReview } from "./duplicate-review";
 import { LeadGroups } from "./lead-groups";
 import { LeadBulkAction, BulkAction } from "./lead-bulk-action";
 import { deleteLeads } from "@/lib/engine";
+import { nextStepText } from "@/lib/lead-intelligence";
+import { matchesLead } from "@/lib/lead-search";
 import { download, exportCSV } from "@/lib/import";
 import { Button } from "./ui/button";
 import { Empty, StatusBadge } from "./shared";
@@ -82,6 +85,7 @@ export function Leads({
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [managingGroups, setManagingGroups] = useState(false);
+  const [reviewingDuplicates, setReviewingDuplicates] = useState(false);
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [extraColumns, setExtraColumns] = useState(false);
@@ -119,9 +123,7 @@ export function Leads({
             (!toDate ||
               (importDate(data!, l) &&
                 dateKey(importDate(data!, l)) <= toDate)) &&
-            [l.companyName, l.phone, l.city, l.contactName, l.industry].some(
-              (v) => v.toLowerCase().includes(deferred.toLowerCase()),
-            ),
+            matchesLead(l, deferred),
         )
         .sort((a, b) =>
           sort === "importedAt" &&
@@ -357,7 +359,17 @@ export function Leads({
         >
           Hantera grupper
         </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setReviewingDuplicates(true)}
+        >
+          Granska dubbletter
+        </Button>
       </div>
+      {reviewingDuplicates && (
+        <DuplicateReview onClose={() => setReviewingDuplicates(false)} />
+      )}
       <div className="leads-controls">
         <div className="search-field">
           <Search size={15} />
@@ -770,6 +782,7 @@ export function Leads({
                     />
                     <button
                       className="lead-card-company"
+                      aria-label={l.companyName}
                       onClick={() => onOpen(l)}
                     >
                       <strong>{l.companyName}</strong>
@@ -788,6 +801,7 @@ export function Leads({
                       <MoreHorizontal size={16} />
                     </Button>
                   </div>
+                  <p className="footnote">{nextStepText(l)}</p>
                   <div className="lead-card-tags">
                     <StatusBadge status={l.status} />
                     <span
@@ -954,6 +968,7 @@ export function Leads({
                           <button
                             className="company-cell"
                             title={l.companyName}
+                            aria-label={l.companyName}
                             onClick={() => onOpen(l)}
                           >
                             <span className="company-avatar" aria-hidden="true">
@@ -986,6 +1001,7 @@ export function Leads({
                                   </span>
                                 )}
                               </small>
+                              <small>{nextStepText(l)}</small>
                             </span>
                           </button>
                         </td>

@@ -172,7 +172,7 @@ export function ImportWizard({
         if (!o && !committing.current) onClose();
       }}
       title="Importera företag"
-      description="Från kalkylblad till nästa samtal. Dina uppgifter sparas i den här webbläsaren."
+      description="Vi jämför med alla dina befintliga leads, oavsett grupp eller importlista."
       wide
     >
       <div className="wizard-steps">
@@ -454,12 +454,12 @@ export function ImportWizard({
               [
                 "update",
                 "Uppdatera matchande företag",
-                "Fyll i icke-tomma uppgifter för tydliga telefon- eller domänträffar. Status och historik bevaras.",
+                "Uppdatera kontaktuppgifter för tydliga träffar. Nya anteckningar läggs till. Status, historik och uppföljningar bevaras.",
               ],
               [
                 "separate",
                 "Importera som separata företag",
-                "Lägg till alla giltiga rader, även om de redan finns.",
+                "Skapar dubbletter med egen historik. Använd bara för avsiktligt separata företag. Ringkön skyddar fortfarande mot samma nummer flera gånger idag.",
               ],
             ] as const
           ).map(([value, title, description]) => (

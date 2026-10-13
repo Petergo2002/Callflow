@@ -176,7 +176,7 @@ test("500 CSV leads → call → keyboard → callback → pause/refresh → und
   expect(exported).toContain("Ångström 000");
   expect(exported).toContain("0700000000");
   await page.getByLabel("Sök företag", { exact: true }).fill("Ångström 010");
-  await page.getByRole("button", { name: /^Ångström 010 Bygg/ }).click();
+  await page.getByRole("button", { name: "Ångström 010", exact: true }).click();
   await page.getByLabel("Kontaktperson", { exact: true }).fill("Emma Öster");
   await page
     .getByRole("button", { name: "Spara ändringar", exact: true })

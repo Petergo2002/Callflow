@@ -1,5 +1,5 @@
 import { test, expect, Page } from "@playwright/test";
-import { Data, emptyData, makeLead } from "../../src/lib/model";
+import { Data, emptyData, makeLead, stockholmInput } from "../../src/lib/model";
 const url = "https://wnexrlghlmotkysrofkl.supabase.co";
 const owner = "11111111-1111-4111-8111-111111111111";
 const email = "agenter0202@gmail.com";
@@ -461,4 +461,62 @@ test("group selection and mid-session changes survive cloud sync and reopening",
   expect(server.document?.sessions[0].selectedGroup).toBe("b");
   expect(server.document?.sessions[0].requirePhone).toBe(true);
   await other.close();
+});
+
+test("next steps and merged contact aliases survive cloud sync and opening on another device", async ({
+  page,
+  browser,
+}) => {
+  const document = fixture();
+  document.leads[0] = {
+    ...document.leads[0],
+    status: "Intresserad",
+    alternatePhones: ["0705555555"],
+    alternateNames: ["Tidigare bolagsnamn"],
+    mergedFrom: ["merged-old"],
+  };
+  const server: Server = {
+    document,
+    revision: 1,
+    offline: false,
+    allowed: true,
+  };
+  await mockCloud(page, server);
+  await page.goto("/leads");
+  await page
+    .getByRole("button", { name: "Molnföretag AB", exact: true })
+    .click();
+  await page.getByLabel("Vad ska hända?").selectOption("wait");
+  const due = new Date(Date.now() + 86400000).toISOString();
+  await page
+    .getByLabel("Kontrollera svar · svensk tid")
+    .fill(stockholmInput(due));
+  await page
+    .getByLabel("Kort beskrivning av nästa steg")
+    .fill("Kontrollera svar från Anna");
+  await page
+    .getByRole("button", { name: "Spara nästa steg", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Stäng", exact: true }).click();
+  await expect(
+    page.getByText("Sparat i Supabase", { exact: true }),
+  ).toBeVisible();
+  expect(server.document?.leads[0].nextStep).toMatchObject({
+    kind: "wait",
+    note: "Kontrollera svar från Anna",
+  });
+  expect(server.document?.leads[0].alternatePhones).toEqual(["0705555555"]);
+  const context = await browser.newContext();
+  const other = await context.newPage();
+  await mockCloud(other, server);
+  await other.goto("/leads");
+  await other.getByLabel("Sök företag", { exact: true }).fill("+46705555555");
+  await other
+    .getByRole("button", { name: "Molnföretag AB", exact: true })
+    .click();
+  await expect(
+    other.getByText("Kontrollera svar från Anna", { exact: true }),
+  ).toBeVisible();
+  await expect(other.getByLabel("Vad ska hända?")).toHaveValue("wait");
+  await context.close();
 });

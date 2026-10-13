@@ -4,6 +4,8 @@ import {
   rankedLeads,
   sessionIncludesLead,
   Status,
+  contactMemory,
+  contactedToday,
 } from "./model";
 
 export interface FocusSelectionValue {
@@ -50,15 +52,28 @@ export function queueInfo(
   );
   const visited = new Set(session.visited);
   const unvisited = matching.filter((l) => !visited.has(l.id));
+  const lastContact = contactMemory(data);
   const future = unvisited.filter(
     (l) =>
-      !!l.phone.trim() && l.nextFollowUpAt && new Date(l.nextFollowUpAt) > now,
+      !!l.phone.trim() &&
+      ((l.nextFollowUpAt && new Date(l.nextFollowUpAt) > now) ||
+        (l.nextRetryAt && new Date(l.nextRetryAt) > now)),
   );
   return {
     matching,
     ready: rankedLeads(data, session, now),
     missingPhone: unvisited.filter((l) => !l.phone.trim()).length,
     future,
-    nextAt: future.map((l) => l.nextFollowUpAt!).sort()[0],
+    contactedToday: unvisited.filter(
+      (l) => !!l.phone.trim() && contactedToday(l, lastContact(l), now),
+    ).length,
+    nextAt: future
+      .map((l) =>
+        [l.nextFollowUpAt, l.nextRetryAt]
+          .filter((at): at is string => !!at && new Date(at) > now)
+          .sort()
+          .at(-1)!,
+      )
+      .sort()[0],
   };
 }

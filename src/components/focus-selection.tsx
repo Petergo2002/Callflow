@@ -28,7 +28,7 @@ export function FocusSelection({
   now: number;
 }) {
   const preview = selectionSession(value, session);
-  const { ready, future, missingPhone } = queueInfo(
+  const { ready, future, missingPhone, contactedToday } = queueInfo(
     data,
     preview,
     new Date(now),
@@ -180,11 +180,12 @@ export function FocusSelection({
             ? `Först: ${ready[0].companyName}`
             : "Inga ringbara leads i det här urvalet."}
         </span>
-        {(future.length > 0 || missingPhone > 0) && (
+        {(future.length > 0 || missingPhone > 0 || contactedToday > 0) && (
           <small>
             {[
+              contactedToday ? `${contactedToday} redan ringda idag` : "",
               future.length
-                ? `${future.length} väntar på sin återringningstid`
+                ? `${future.length} väntar på nästa kontakttid`
                 : "",
               missingPhone ? `${missingPhone} saknar telefonnummer` : "",
             ]
@@ -205,7 +206,9 @@ export function FocusSelection({
       <p className="focus-selection-note">
         Försenade uppföljningar går först, sedan dagens återringningar och nya
         leads. Framtida återringningar väntar till sin tid. Leads utan
-        telefonnummer hoppas över.
+        telefonnummer hoppas över. Samma nummer tas med en gång i kön. Redan
+        ringda nummer väntar till nästa dag, om du inte bokat en ny
+        återringningstid.
       </p>
     </div>
   );

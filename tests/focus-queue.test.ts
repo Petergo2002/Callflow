@@ -49,7 +49,7 @@ function fixture() {
       makeLead(
         {
           companyName,
-          phone: "0701234567",
+          phone: `070123456${i}`,
           website: "",
           industry: "",
           city: "",

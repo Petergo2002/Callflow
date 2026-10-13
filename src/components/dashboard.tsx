@@ -34,6 +34,7 @@ import {
   weekStart,
 } from "@/lib/model";
 import { completedThisWeek } from "@/lib/engine";
+import { WorkNow } from "./work-now";
 import { Button } from "./ui/button";
 import { Progress, StatusBadge } from "./shared";
 export function WeekChart({
@@ -287,6 +288,7 @@ export function Dashboard({
           </div>
         </div>
       </div>
+      <WorkNow data={data} onOpen={onOpen} />
       <div className="dashboard-columns">
         <section className="panel">
           <div className="panel-header">

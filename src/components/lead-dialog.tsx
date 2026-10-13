@@ -12,11 +12,17 @@ import {
   leadSources,
   importDate,
   formatImportDate,
+  normalizePhone,
+  normalizeDomain,
+  normalizeName,
 } from "@/lib/model";
 import { saveGroup } from "@/lib/organization";
 import { GroupColorPicker } from "./group-color-picker";
 import { useStore } from "@/lib/store";
 import { deleteLeads, updateLead } from "@/lib/engine";
+import { IncomingCall } from "./incoming-call";
+import { NextStepPanel } from "./next-step";
+import { attemptLabel, nextStepText } from "@/lib/lead-intelligence";
 import { makeLead } from "@/lib/model";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
@@ -54,6 +60,19 @@ export function LeadDialog({
   const [saveFailed, setSaveFailed] = useState(false);
   const editing = lead !== "new";
   if (!data) return null;
+  const currentLead = editing
+    ? data.leads.find((l) => l.id === lead.id)
+    : undefined;
+  const duplicates = data.leads.filter(
+    (l) =>
+      (!editing || l.id !== lead.id) &&
+      ((!!form.phone &&
+        normalizePhone(l.phone) === normalizePhone(form.phone)) ||
+        (!!form.website &&
+          normalizeDomain(l.website) === normalizeDomain(form.website)) ||
+        (!!form.companyName &&
+          normalizeName(l.companyName) === normalizeName(form.companyName))),
+  );
   const calls = editing
     ? data.calls
         .filter((c) => c.leadId === lead.id)
@@ -156,7 +175,31 @@ export function LeadDialog({
           )}
         </div>
       )}
+      {currentLead && (
+        <>
+          <p className="footnote">
+            {attemptLabel(data, currentLead.id)} · {nextStepText(currentLead)}
+          </p>
+          <IncomingCall
+            lead={currentLead}
+            onRecorded={(status) => setForm((old) => ({ ...old, status }))}
+          />
+        </>
+      )}
       <form onSubmit={save}>
+        {duplicates.length > 0 && (
+          <div className="warning" role="status">
+            Finns kanske redan:{" "}
+            {duplicates
+              .slice(0, 3)
+              .map(
+                (l) =>
+                  `${l.companyName} (${l.status}${l.lastContactedAt ? `, kontaktad ${formatDate(l.lastContactedAt, true)}` : ""})`,
+              )
+              .join(" · ")}
+            . Kontrollera befintligt lead innan du skapar en separat post.
+          </div>
+        )}
         <div className="form-grid">
           {fields.map(([field, label]) => (
             <label
@@ -332,6 +375,7 @@ export function LeadDialog({
           )}
         </div>
       </form>
+      {currentLead && <NextStepPanel lead={currentLead} />}
       {editing && (
         <div className="history">
           <h3 className="mb-5">Samtalshistorik · {calls.length}</h3>
@@ -342,6 +386,7 @@ export function LeadDialog({
                   <StatusBadge status={c.outcome} />
                   <span className="muted">
                     {formatDate(c.createdAt, true)}
+                    {c.direction === "incoming" ? " · Inkommande" : ""}
                     {c.demo ? " · demo" : ""}
                   </span>
                 </div>

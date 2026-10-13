@@ -41,19 +41,42 @@ export function LeadBulkAction({
         ? "Flytta till grupp"
         : "Ändra källa";
   function transform(d: Data) {
-    if (action === "status")
+    if (action === "status") {
+      const selected = new Set(ids);
+      const closed = value === "Kund" || value === "Inte intresserad";
+      const now = new Date().toISOString();
       return {
         ...d,
+        followUps: closed
+          ? d.followUps.map((f) =>
+              selected.has(f.leadId) && f.status === "pending"
+                ? {
+                    ...f,
+                    status: "completed" as const,
+                    completedAt: now,
+                    resolution: "closed" as const,
+                  }
+                : f,
+            )
+          : d.followUps,
         leads: d.leads.map((l) =>
-          ids.includes(l.id)
+          selected.has(l.id)
             ? {
                 ...l,
                 status: value as Status,
-                updatedAt: new Date().toISOString(),
+                updatedAt: now,
+                ...(closed
+                  ? {
+                      nextFollowUpAt: undefined,
+                      nextRetryAt: undefined,
+                      nextStep: undefined,
+                    }
+                  : {}),
               }
             : l,
         ),
       };
+    }
     if (action === "group") {
       if (value === "__new__") {
         const next = saveGroup(d, newName, color);

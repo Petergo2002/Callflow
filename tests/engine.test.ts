@@ -150,13 +150,13 @@ describe("Samtal och dataintegritet", () => {
     d.leads[1].nextFollowUpAt = "2026-10-13T07:00:00Z";
     d.leads.push(
       makeLead(
-        { ...input("Försenad"), status: "Återkom senare" },
+        { ...input("Försenad", "0701111111"), status: "Återkom senare" },
         { nextFollowUpAt: "2026-10-11T07:00:00Z" },
       ),
     );
     d.leads.push(
       makeLead(
-        { ...input("Idag"), status: "Återkom senare" },
+        { ...input("Idag", "0703333333"), status: "Återkom senare" },
         { nextFollowUpAt: "2026-10-12T07:00:00Z" },
       ),
     );

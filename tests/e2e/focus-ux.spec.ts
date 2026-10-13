@@ -20,7 +20,7 @@ function fixture() {
     (companyName, i) =>
       makeLead({
         companyName,
-        phone: "0701234567",
+        phone: `070123456${i}`,
         website: "",
         industry: "",
         city: "",
@@ -131,7 +131,7 @@ test("empty queues explain future callbacks and missing phones; advanced filters
   ).toBeVisible();
   await expect(
     page.getByText(
-      "1 väntar på sin återringningstid · 1 saknar telefonnummer",
+      "1 väntar på nästa kontakttid · 1 saknar telefonnummer",
       { exact: true },
     ),
   ).toBeVisible();

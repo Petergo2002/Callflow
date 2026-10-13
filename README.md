@@ -11,6 +11,7 @@ Byggt med **Next.js 16 (App Router)**, **React 19**, **TypeScript 5.9**, **Tailw
 För djupgående genomgångar, se de specialiserade dokumenten i `docs/`:
 
 - **[Systemarkitektur & Datamodell](docs/ARCHITECTURE.md)** — Teknisk arkitektur, PostgreSQL-triggers, atomära skrivningar, revisioner och RLS-säkerhet.
+- **[Leadminne & trygg CSV-import](docs/LEAD_MEMORY.md)** — Smarta återförsök, inkommande samtal, nästa steg, sammanslagning av dubbletter och Gör detta nu.
 - **[Funktionsguide & Arbetsflöden](docs/FEATURES.md)** — Detaljerad guide till Fokusläge, leadshantering, grupper, uppföljningar, import/export och XP.
 - **[Kom igång & Konfiguration](docs/GETTING_STARTED.md)** — Snabbstartsguide, miljövariabler, Supabase-inställningar och driftsättning på Vercel.
 - **[Utvecklarguide & Testning](docs/DEVELOPMENT.md)** — Kodkonventioner, projektstruktur och automatiserad testning med Vitest och Playwright.
@@ -102,7 +103,7 @@ npm start
 
 ## 🧪 Tester & Kvalitetskontroll
 
-Projektet har fullständig testtäckning med både Vitest och Playwright:
+Projektet har automatiserade tester med både Vitest och Playwright:
 
 ```sh
 # Kontrollera typer

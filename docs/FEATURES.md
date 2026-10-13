@@ -159,3 +159,7 @@ Varje framsteg belönas med erfarenhetspoäng:
 - **Genomförd uppföljning**: +10 XP
 - **Bokat möte (första per företag)**: +30 XP
 - **Ny kund (första per företag)**: +100 XP
+
+## Smarta leads och nästa steg
+
+Se [Leadminne och smarta arbetsflöden](LEAD_MEMORY.md) för återförsök på andra arbetsdagar och tider, inkommande samtal i fokus, Ring/Skicka offert/Invänta svar, dubblettgranskning och den prioriterade **Gör detta nu**-vyn.

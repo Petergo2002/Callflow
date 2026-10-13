@@ -21,7 +21,8 @@ import {
   X,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { Lead, dateKey, emptyData, metrics } from "@/lib/model";
+import { Lead, dateKey, emptyData, metrics, formatDate } from "@/lib/model";
+import { exactPhoneMatch, searchLeads } from "@/lib/lead-search";
 import { changeSession, startSession } from "@/lib/engine";
 import { download } from "@/lib/import";
 import { Dashboard } from "./dashboard";
@@ -32,7 +33,7 @@ import { Statistics } from "./statistics";
 import { Settings } from "./settings";
 import { LeadDialog } from "./lead-dialog";
 import { ImportWizard } from "./import-wizard";
-import { Progress } from "./shared";
+import { Progress, StatusBadge } from "./shared";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
 import { SyncLabel, SyncNotice } from "./cloud-access";
@@ -62,6 +63,17 @@ function WorkspaceInner({ section }: { section: string }) {
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState("");
   const [mobile, setMobile] = useState(false);
+  function openSearch() {
+    const active = data?.sessions.find((s) => s.status === "active");
+    if (
+      section === "focus" &&
+      active &&
+      !mutate((d) => changeSession(d, active.id, "paused"))
+    )
+      return;
+    setQuery("");
+    setSearching(true);
+  }
   useEffect(() => {
     if (section === "focus") return;
     function shortcut(e: KeyboardEvent) {
@@ -176,10 +188,28 @@ function WorkspaceInner({ section }: { section: string }) {
     setGroupContext(typeof groupId === "string" ? groupId : "");
     setImporting(true);
   };
+  const searchResults = searching ? searchLeads(data.leads, query) : [];
+  const exactMatches = searchResults.filter((l) => exactPhoneMatch(l, query));
+  function openResult(lead: Lead) {
+    setSearching(false);
+    setDetail(lead);
+  }
   return (
     <>
       {section === "focus" ? (
-        <Focus onSearch={() => setSearching(true)} onImport={importLeads} />
+        <Focus
+          onSearch={openSearch}
+          onImport={importLeads}
+          onOpenLead={(lead) => {
+            const session = data.sessions.find((s) => s.status === "active");
+            if (
+              session &&
+              !mutate((d) => changeSession(d, session.id, "paused"))
+            )
+              return;
+            setDetail(lead);
+          }}
+        />
       ) : (
         <div className="app-shell">
           {mobile && (
@@ -393,60 +423,80 @@ function WorkspaceInner({ section }: { section: string }) {
       <Dialog
         open={searching}
         onOpenChange={setSearching}
-        title="Hitta nästa möjlighet"
-        description="Sök efter företag, kontaktperson, telefon eller ort."
+        title="Vem ringer? Sök nummer eller företag"
+        description={
+          section === "focus"
+            ? "Ringpasset är pausat och din plats i kön är kvar. Sök bland alla leads, även Inget svar och avslutade företag."
+            : "Sök bland alla leads efter telefonnummer, företag, kontaktperson eller ort."
+        }
       >
         <div className="search-field max-w-none mb-4">
           <Search size={15} />
           <input
             className="input"
             aria-label="Sök i arbetsrummet"
-            placeholder="Sök ett företag…"
+            placeholder="Klistra in nummer, t.ex. 070… eller +46…"
+            autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && query.trim()) {
+                const lead =
+                  exactMatches.length === 1
+                    ? exactMatches[0]
+                    : searchResults.length === 1
+                      ? searchResults[0]
+                      : undefined;
+                if (lead) {
+                  e.preventDefault();
+                  openResult(lead);
+                }
+              }
+            }}
           />
         </div>
         <div className="max-h-80 overflow-auto">
-          {data.leads
-            .filter((l) =>
-              [l.companyName, l.phone, l.city, l.contactName].some((v) =>
-                v.toLowerCase().includes(query.toLowerCase()),
-              ),
-            )
-            .slice(0, 30)
-            .map((l) => (
-              <button
-                className="priority-row"
-                key={l.id}
-                onClick={() => {
-                  setSearching(false);
-                  setDetail(l);
-                }}
-              >
-                <span className="company-avatar">{l.companyName[0]}</span>
-                <div className="priority-text">
-                  <strong>{l.companyName}</strong>
-                  <p>
-                    {l.city} · {l.phone || "Telefon saknas"}
-                  </p>
-                </div>
-                <ChevronRight size={14} className="muted" />
-              </button>
-            ))}
+          {searchResults.slice(0, 30).map((l) => (
+            <button
+              className="priority-row"
+              key={l.id}
+              onClick={() => {
+                openResult(l);
+              }}
+            >
+              <span className="company-avatar">{l.companyName[0]}</span>
+              <div className="priority-text">
+                <strong>{l.companyName}</strong>
+                <p>
+                  {l.city} · {l.phone || "Telefon saknas"}
+                  {exactPhoneMatch(l, query) ? " · Exakt nummerträff" : ""}
+                </p>
+                {l.lastContactedAt && (
+                  <p>Senaste kontakt: {formatDate(l.lastContactedAt, true)}</p>
+                )}
+                {l.nextFollowUpAt && (
+                  <p>Uppföljning: {formatDate(l.nextFollowUpAt, true)}</p>
+                )}
+              </div>
+              <StatusBadge status={l.status} />
+              <ChevronRight size={14} className="muted" />
+            </button>
+          ))}
           {!data.leads.length && (
             <p className="muted text-xs p-4">Inga företag ännu.</p>
           )}
-          {data.leads.length > 0 &&
-            !data.leads.some((l) =>
-              [l.companyName, l.phone, l.city, l.contactName].some((v) =>
-                v.toLowerCase().includes(query.toLowerCase()),
-              ),
-            ) && (
-              <p className="muted text-xs p-4">
-                Inga företag matchar din sökning.
-              </p>
-            )}
+          {data.leads.length > 0 && !searchResults.length && (
+            <p className="muted text-xs p-4">
+              Inga företag matchar din sökning.
+            </p>
+          )}
         </div>
+        {searchResults.length > 30 && (
+          <p className="footnote">
+            Visar 30 av {searchResults.length} träffar. Skriv fler siffror eller
+            öppna alla i Leads.
+          </p>
+        )}
         <div className="dialog-footer">
           <Button
             variant="secondary"

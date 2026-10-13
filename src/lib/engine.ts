@@ -15,7 +15,10 @@ import {
   sessionSeconds,
   sessionIncludesLead,
   sessionScopeValid,
+  NextStep,
+  nextStepSchema,
 } from "./model";
+import { suggestRetry } from "./lead-intelligence";
 
 export function updateLead(data: Data, leadId: string, input: LeadInput) {
   const old = data.leads.find((l) => l.id === leadId);
@@ -25,8 +28,26 @@ export function updateLead(data: Data, leadId: string, input: LeadInput) {
     ...input,
     updatedAt: new Date().toISOString(),
   });
+  const closed = input.status === "Kund" || input.status === "Inte intresserad";
+  if (closed) {
+    changed.nextFollowUpAt = undefined;
+    changed.nextRetryAt = undefined;
+    changed.nextStep = undefined;
+  }
   return {
     ...data,
+    followUps: closed
+      ? data.followUps.map((f) =>
+          f.leadId === leadId && f.status === "pending"
+            ? {
+                ...f,
+                status: "completed" as const,
+                completedAt: changed.updatedAt,
+                resolution: "closed" as const,
+              }
+            : f,
+        )
+      : data.followUps,
     leads: data.leads.map((l) => (l.id === leadId ? changed : l)),
   };
 }
@@ -219,6 +240,8 @@ export function nextLead(
 }
 export interface UndoCall {
   callId: string;
+  resultingLead?: Lead;
+  resultingFollowUps?: FollowUp[];
   previousLead: Lead;
   previousFollowUps: FollowUp[];
   session?: CallingSession;
@@ -233,6 +256,7 @@ export function logCall(
     followUpAt?: string;
     meetingAt?: string;
     notes?: string;
+    direction?: "incoming" | "outgoing";
   },
 ): { data: Data; undo?: UndoCall } {
   if (data.calls.some((c) => c.id === args.eventId)) return { data };
@@ -250,7 +274,7 @@ export function logCall(
   )
     return { data };
   if (
-    args.outcome === "Återkom senare" &&
+    (args.outcome === "Återkom senare" || args.followUpAt) &&
     (!args.followUpAt ||
       !Number.isFinite(new Date(args.followUpAt).getTime()) ||
       new Date(args.followUpAt).getTime() <= Date.now())
@@ -265,9 +289,11 @@ export function logCall(
     notes: args.notes ?? lead.notes,
     createdAt: now,
     meetingAt: args.meetingAt,
+    direction: args.direction || "outgoing",
   };
   const due = data.followUps.filter(
     (f) =>
+      args.outcome !== "Inget svar" &&
       f.leadId === lead.id &&
       f.status === "pending" &&
       new Date(f.dueAt).getTime() <= Date.now(),
@@ -277,8 +303,20 @@ export function logCall(
   );
   let followUps = data.followUps.map((f) =>
     due.some((d) => d.id === f.id) ||
-    (args.followUpAt && pending.some((d) => d.id === f.id))
-      ? { ...f, status: "completed" as const, completedAt: now }
+    ((args.followUpAt ||
+      args.outcome === "Inte intresserad" ||
+      args.outcome === "Kund") &&
+      pending.some((d) => d.id === f.id))
+      ? {
+          ...f,
+          status: "completed" as const,
+          completedAt: now,
+          resolution: due.some((d) => d.id === f.id)
+            ? ("done" as const)
+            : args.followUpAt
+              ? ("replaced" as const)
+              : ("closed" as const),
+        }
       : f,
   );
   if (args.followUpAt)
@@ -342,15 +380,42 @@ export function logCall(
             lastContactedAt: now,
             nextFollowUpAt,
             updatedAt: now,
+            nextRetryAt: undefined,
+            nextStep: args.followUpAt
+              ? {
+                  kind: "call",
+                  dueAt: args.followUpAt,
+                  note: (args.notes ?? lead.notes).slice(0, 2000),
+                }
+              : ["Kund", "Inte intresserad"].includes(args.outcome) ||
+                  (l.nextStep &&
+                    (l.nextStep.kind === "call" ||
+                      (l.nextStep.kind === "wait" &&
+                        args.direction === "incoming")) &&
+                    new Date(l.nextStep.dueAt) <= new Date(now) &&
+                    args.outcome !== "Inget svar")
+                ? undefined
+                : l.nextStep,
           }
         : l,
     ),
   };
+  if (args.outcome === "Inget svar" && !args.followUpAt) {
+    const retry = suggestRetry(result, lead.id, new Date(now));
+    result = {
+      ...result,
+      leads: result.leads.map((l) =>
+        l.id === lead.id ? { ...l, nextRetryAt: retry } : l,
+      ),
+    };
+  }
   if (session) result = nextLead(result, session.id);
   return {
     data: result,
     undo: {
       callId: call.id,
+      resultingLead: result.leads.find((l) => l.id === lead.id),
+      resultingFollowUps: result.followUps.filter((f) => f.leadId === lead.id),
       previousLead: lead,
       previousFollowUps: pending,
       session,
@@ -360,8 +425,28 @@ export function logCall(
 export function undoCall(data: Data, undo: UndoCall): Data {
   const call = data.calls.find((c) => c.id === undo.callId);
   if (!call) return data;
+  const currentLead = data.leads.find((l) => l.id === call.leadId);
+  if (call.leadId !== undo.previousLead.id)
+    throw new Error(
+      "Företaget har slagits ihop efter samtalet. Ångra sammanslagningen först.",
+    );
+  if (
+    undo.resultingLead &&
+    currentLead &&
+    (currentLead.status !== undo.resultingLead.status ||
+      currentLead.nextRetryAt !== undo.resultingLead.nextRetryAt ||
+      JSON.stringify(currentLead.nextStep) !==
+        JSON.stringify(undo.resultingLead.nextStep) ||
+      JSON.stringify(data.followUps.filter((f) => f.leadId === call.leadId)) !==
+        JSON.stringify(undo.resultingFollowUps))
+  )
+    throw new Error(
+      "Nästa steg eller uppföljningarna har ändrats efter samtalet. Ångring stoppades för att bevara de senare ändringarna.",
+    );
   const later = data.calls.some(
-    (c) => c.leadId === call.leadId && c.createdAt > call.createdAt,
+    (c, index) =>
+      c.leadId === call.leadId &&
+      (c.createdAt > call.createdAt || index > data.calls.indexOf(call)),
   );
   if (later)
     throw new Error(
@@ -384,6 +469,8 @@ export function undoCall(data: Data, undo: UndoCall): Data {
             status: undo.previousLead.status,
             lastContactedAt: undo.previousLead.lastContactedAt,
             nextFollowUpAt: undo.previousLead.nextFollowUpAt,
+            nextRetryAt: undo.previousLead.nextRetryAt,
+            nextStep: undo.previousLead.nextStep,
           }
         : l,
     ),
@@ -419,7 +506,12 @@ export function completeFollowUp(data: Data, followId: string): Data {
   const now = new Date().toISOString();
   const followUps = data.followUps.map((x) =>
     x.id === f.id
-      ? { ...x, status: "completed" as const, completedAt: now }
+      ? {
+          ...x,
+          status: "completed" as const,
+          completedAt: now,
+          resolution: "done" as const,
+        }
       : x,
   );
   const next = followUps
@@ -429,7 +521,18 @@ export function completeFollowUp(data: Data, followId: string): Data {
     ...data,
     followUps,
     leads: data.leads.map((l) =>
-      l.id === f.leadId ? { ...l, nextFollowUpAt: next } : l,
+      l.id === f.leadId
+        ? {
+            ...l,
+            nextFollowUpAt: next,
+            nextStep:
+              l.nextStep?.kind === "call" && l.nextStep.dueAt === f.dueAt
+                ? next
+                  ? { ...l.nextStep, dueAt: next }
+                  : undefined
+                : l.nextStep,
+          }
+        : l,
     ),
     xp: data.xp.some((e) => e.sourceEventId === f.id)
       ? data.xp
@@ -466,13 +569,123 @@ export function reschedule(data: Data, followId: string, dueAt: string): Data {
             nextFollowUpAt: followUps
               .filter((x) => x.leadId === l.id && x.status === "pending")
               .sort((a, b) => a.dueAt.localeCompare(b.dueAt))[0]?.dueAt,
+            nextRetryAt: undefined,
+            nextStep:
+              l.nextStep?.kind === "call"
+                ? { ...l.nextStep, dueAt }
+                : l.nextStep,
           }
+        : l,
+    ),
+  };
+}
+export function scheduleFollowUp(
+  data: Data,
+  leadId: string,
+  dueAt: string,
+  notes = "",
+): Data {
+  if (!data.leads.some((l) => l.id === leadId))
+    throw new Error("Företaget finns inte längre.");
+  if (
+    !Number.isFinite(new Date(dueAt).getTime()) ||
+    new Date(dueAt).getTime() <= Date.now()
+  )
+    throw new Error("Välj en tid i framtiden.");
+  const now = new Date().toISOString();
+  return {
+    ...data,
+    followUps: [
+      ...data.followUps.map((f) =>
+        f.leadId === leadId && f.status === "pending"
+          ? {
+              ...f,
+              status: "completed" as const,
+              completedAt: now,
+              resolution: "replaced" as const,
+            }
+          : f,
+      ),
+      { id: id(), leadId, dueAt, notes, status: "pending" },
+    ],
+    leads: data.leads.map((l) =>
+      l.id === leadId
+        ? {
+            ...l,
+            nextFollowUpAt: dueAt,
+            nextRetryAt: undefined,
+            nextStep: { kind: "call", dueAt, note: notes.slice(0, 2000) },
+            updatedAt: now,
+          }
+        : l,
+    ),
+  };
+}
+export function setNextStep(data: Data, leadId: string, input: NextStep): Data {
+  const step = nextStepSchema.parse(input);
+  const lead = data.leads.find((l) => l.id === leadId);
+  if (!lead) throw new Error("Företaget finns inte längre.");
+  if (["Kund", "Inte intresserad"].includes(lead.status))
+    throw new Error(
+      "Öppna leadet igen genom att ändra status innan du bokar ett nästa steg.",
+    );
+  if (new Date(step.dueAt).getTime() <= Date.now())
+    throw new Error("Välj en tid i framtiden.");
+  if (step.kind === "call")
+    return scheduleFollowUp(data, leadId, step.dueAt, step.note);
+  const now = new Date().toISOString();
+  return {
+    ...data,
+    leads: data.leads.map((l) =>
+      l.id === leadId
+        ? {
+            ...l,
+            nextStep: step,
+            nextRetryAt: undefined,
+            nextFollowUpAt: undefined,
+            updatedAt: now,
+          }
+        : l,
+    ),
+    followUps: data.followUps.map((f) =>
+      f.leadId === leadId && f.status === "pending"
+        ? {
+            ...f,
+            status: "completed" as const,
+            completedAt: now,
+            resolution: "replaced" as const,
+          }
+        : f,
+    ),
+  };
+}
+export function completeNextStep(data: Data, leadId: string): Data {
+  const lead = data.leads.find((l) => l.id === leadId);
+  if (!lead?.nextStep) return data;
+  if (lead.nextStep.kind === "call") {
+    return data.followUps
+      .filter(
+        (f) =>
+          f.leadId === leadId &&
+          f.status === "pending" &&
+          f.dueAt === lead.nextStep!.dueAt,
+      )
+      .reduce((d, f) => completeFollowUp(d, f.id), data);
+  }
+  return {
+    ...data,
+    leads: data.leads.map((l) =>
+      l.id === leadId
+        ? { ...l, nextStep: undefined, updatedAt: new Date().toISOString() }
         : l,
     ),
   };
 }
 export function completedThisWeek(data: Data, start: string) {
   return data.followUps.filter(
-    (f) => f.completedAt && dateKey(f.completedAt) >= start,
+    (f) =>
+      f.completedAt &&
+      (!f.resolution || f.resolution === "done") &&
+      dateKey(f.completedAt) >= start,
   ).length;
 }

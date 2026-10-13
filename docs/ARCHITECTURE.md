@@ -218,3 +218,11 @@ När appen startar anropas funktionen `callflow_read_workspace` med `SECURITY IN
   ```
 - **RLS på alla tabeller**: Samtliga tabeller har RLS aktiverat. Endast den inloggade användaren vars `auth.uid()` matchar `owner_id` och vars e-post finns i `callflow_access` har läsrättigheter.
 - **Skrivskydd för klienten på entitetstabeller**: Klienten har endast rätt att läsa de relationella tabellerna. Direkta SQL-inserts/updates på `public.leads` eller `public.call_logs` från klienten är spärrade; all uppdatering måste gå via det validerade arbetsrummet för att förhindra inkonsistens mellan loggar, status och XP.
+
+## Smarta arbetsflöden (valfria fält i version 1)
+
+`Lead` kan också innehålla `nextRetryAt`, `nextStep` (`kind`, `dueAt`, `note`), `alternatePhones`, `alternateWebsites`, `alternateNames` och `mergedFrom`. `CallLog.direction` skiljer inkommande och utgående samtal; äldre loggar saknar fältet. `FollowUp.resolution` skiljer verkligt utförda uppföljningar från ersatta eller stängda löften, så att omplanering inte räknas som utförd uppföljning.
+
+Fälten valideras i `repository.ts` och följer med i det befintliga JSON-dokumentet. Databasprojektionen bevarar hela `data` för varje entitet och läser tillbaka detta JSON, därför krävs ingen SQL-migrering för de nya fälten. Äldre säkerhetskopior utan fälten kan fortfarande läsas.
+
+Återförsök och prioriterade åtgärder beräknas i `lead-intelligence.ts`; dubblettgranskning och atomär sammanslagning i `duplicates.ts`. En sammanslagning flyttar referenser i samtal, uppföljningar och ringpass till huvudposten och ändrar inte händelse-ID:n eller XP. Inkommande samtal använder samma transaktionsmotor som fokus, men utan ett ringpass-ID, så att kön för det pågående passet inte flyttas.
